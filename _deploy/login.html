@@ -385,13 +385,13 @@
       ['会话有效', Math.round((sess.expires_in || 3600) / 60) + ' 分钟']
     ], isManager
       ? [
-          { label: '进入账号中心', primary: true, onclick: function () { location.href = 'view-account.html'; } },
-          { label: '进入排班工作台', ghost: true, onclick: function () { location.href = 'index.html'; } }
+          { label: '进入排班工作台', primary: true, onclick: function () { location.href = 'manager.html'; } },
+          { label: '进入账号中心', ghost: true, onclick: function () { location.href = 'view-account.html'; } }
         ]
       : [
-          { label: '我的班表（建设中）', ghost: true, disabled: true },
+          { label: '查看我的班表', primary: true, onclick: function () { location.href = 'me.html'; } },
           { label: '返回登录页', ghost: true, onclick: resetToForm }
-        ], isManager ? '' : '员工端「我的班表」页面还在开发中。上线后这里会显示你本周 / 下周 / 历史班表，并可以点「已知晓」回执。');
+        ], isManager ? '' : '这里只显示经理已经发布的班表，草稿改动不会影响你看到的这一份。');
   }
 
   /* ---------- 结果态 ---------- */

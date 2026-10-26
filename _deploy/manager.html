@@ -1,0 +1,601 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#f5f5f7">
+<meta name="color-scheme" content="light dark">
+<title>排班工作台 · 智能排班</title>
+<link rel="stylesheet" href="ui.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='24' fill='%231d1d1f'/><text x='50' y='66' font-size='46' font-family='system-ui' font-weight='700' text-anchor='middle' fill='%23fff'>SR</text></svg>">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-in">
+    <a class="brand-inline" href="manager.html">
+      <span class="logo sm">SR</span><b>排班工作台</b>
+    </a>
+    <span class="sep"></span>
+    <span class="badge" id="roleBadge">—</span>
+    <a class="btn plain sm" href="view-account.html">账号中心</a>
+    <button class="btn plain sm" id="logout" type="button">退出</button>
+  </div>
+</header>
+
+<main class="wrap wb">
+
+  <div class="wb-head">
+    <div class="weeknav">
+      <button class="btn ghost sm" id="prev" type="button" aria-label="上一周">‹</button>
+      <span class="range" id="range">—</span>
+      <button class="btn ghost sm" id="next" type="button" aria-label="下一周">›</button>
+      <button class="btn plain sm" id="today" type="button">本周</button>
+    </div>
+    <span class="badge info" id="pubBadge">载入中…</span>
+    <span class="sep"></span>
+    <span class="save-state" id="saveState">载入中…</span>
+    <button class="btn ghost sm" id="reload" type="button">刷新</button>
+    <button class="btn primary" id="publishBtn" type="button">发布本周</button>
+  </div>
+
+  <div class="toolbar">
+    <div class="seg" id="domSeg"></div>
+    <input class="search" id="q" type="search" placeholder="搜索员工 / 岗位 / 模块" autocomplete="off">
+  </div>
+
+  <div class="legend">
+    <span><i class="lg-early"></i>早班</span>
+    <span><i class="lg-mid"></i>中班</span>
+    <span><i class="lg-night"></i>晚班</span>
+    <span><i class="lg-rest"></i>休息</span>
+    <span class="mute">点格子依次切换：早 → 中 → 晚 → 休 → 清空；蓝点表示还没同步</span>
+  </div>
+
+  <div class="sheet-wrap" id="sheetWrap">
+    <div class="skeleton">正在载入班表…</div>
+  </div>
+
+  <div class="stats" id="stats"></div>
+
+  <p class="hint" id="hint"></p>
+</main>
+
+<div class="overlay" id="overlay">
+  <div class="sheet">
+    <h3 id="dlgTitle">发布本周班表</h3>
+    <p class="sub" id="dlgDesc">发布后员工端立刻能看到自己的班表，草稿改动不会外泄。</p>
+    <div class="kv" id="dlgKv"></div>
+    <div class="field" style="margin-top:16px">
+      <label for="dlgNote">发布说明（选填）</label>
+      <div class="input-shell">
+        <input class="input" id="dlgNote" maxlength="200" placeholder="例如：本周有调休，已和大家确认过">
+      </div>
+    </div>
+    <div class="acts">
+      <button class="btn primary block" id="dlgOk" type="button">
+        <span class="spin"></span><span class="txt">确认发布</span>
+      </button>
+      <button class="btn plain block" id="dlgCancel" type="button">取消</button>
+    </div>
+    <div class="dlg-err" id="dlgErr"></div>
+  </div>
+</div>
+
+<script src="auth-core.js"></script>
+<script>
+(function () {
+  'use strict';
+
+  var $ = SR.$;
+  var session = SR.session.get();
+  if (!session || !session.access_token) {
+    location.replace('login.html');
+    return;
+  }
+
+  var TOKEN = session.access_token;
+  var ME = {
+    username: session.username || '',
+    name: session.display_name || session.username || '',
+    role: session.role || 'employee'
+  };
+
+  if (ME.role !== 'manager' && ME.role !== 'viewer') {
+    document.body.innerHTML =
+      '<main class="page"><section class="card auth" style="max-width:420px">' +
+      '<h2 class="h2">没有访问权限</h2>' +
+      '<p class="sub">这个页面只对排班经理开放。员工请到「我的班表」。</p>' +
+      '<div class="acts"><a class="btn primary block" href="login.html">返回登录</a></div>' +
+      '</section></main>';
+    return;
+  }
+
+  var DAYS = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
+  var SLOT_LABEL = { early: '早', mid: '中', night: '晚', rest: '休' };
+  var SLOT_CLASS = { '': '', early: 's-early', mid: 's-mid', night: 's-night', rest: 's-rest' };
+  var CYCLE = { '': 'early', early: 'mid', mid: 'night', night: 'rest', rest: '' };
+  var DOMAINS = [
+    ['3c', '3C'], ['hongmeng', '鸿蒙'], ['zunjie', '尊界'],
+    ['aftersales', '售后'], ['kufang', '库房'], ['admin', '行政'], ['manager', '管理']
+  ];
+  var DOMAIN_LABEL = {};
+  DOMAINS.forEach(function (d) { DOMAIN_LABEL[d[0]] = d[1]; });
+
+  var S = {
+    week: '',
+    staff: [],
+    grid: {},        /* "姓名|day" -> {slot, role} */
+    dirty: {},       /* "姓名|day" -> true */
+    timer: null,
+    saving: false,
+    published: null,
+    readonly: ME.role !== 'manager',
+    domain: '*',
+    q: '',
+    busy: false
+  };
+
+  /* ---------------- 日期 ---------------- */
+  function pad(n) { return (n < 10 ? '0' : '') + n; }
+  function ymd(d) { return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
+  function parseYmd(s) {
+    var p = String(s).split('-').map(Number);
+    return new Date(p[0], p[1] - 1, p[2]);
+  }
+  function mondayOf(d) {
+    var t = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    var dow = t.getDay();                 /* 0 = 周日 */
+    t.setDate(t.getDate() + (dow === 0 ? -6 : 1 - dow));
+    return t;
+  }
+  function addDays(d, n) {
+    var t = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    t.setDate(t.getDate() + n);
+    return t;
+  }
+  function rangeText(week) {
+    var a = parseYmd(week), b = addDays(a, 6);
+    return a.getFullYear() + '/' + pad(a.getMonth() + 1) + '/' + pad(a.getDate()) +
+      ' – ' + pad(b.getMonth() + 1) + '/' + pad(b.getDate());
+  }
+
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+
+  function reauth() {
+    SR.session.clear();
+    SR.ui.toast('登录状态已失效，正在返回登录页…', 'bad');
+    setTimeout(function () { location.replace('login.html'); }, 900);
+  }
+
+  function setSave(text, kind) {
+    var el = $('#saveState');
+    el.textContent = text;
+    el.className = 'save-state' + (kind ? ' ' + kind : '');
+  }
+
+  /* ---------------- 载入 ---------------- */
+  function load(week) {
+    S.week = week;
+    S.grid = {};
+    S.dirty = {};
+    setSave('载入中…', '');
+    $('#range').textContent = rangeText(week);
+    $('#sheetWrap').innerHTML = '<div class="skeleton">正在载入 ' + esc(rangeText(week)) + ' 的班表…</div>';
+
+    return Promise.all([
+      SR.db.select('weeks', 'week_key=eq.' + week + '&select=week_key,status'),
+      SR.db.select('staff', 'select=name,domain,module,position,level&active=is.true&order=domain.asc,name.asc'),
+      SR.db.select('shifts', 'week_key=eq.' + week + '&select=staff_name,day,slot,role'),
+      SR.db.select('publish_versions', 'week_key=eq.' + week + '&select=version,published_at&order=version.desc&limit=1')
+    ]).then(function (r) {
+      var wk = r[0], st = r[1], sh = r[2], pv = r[3];
+      if (wk.http === 401 || st.http === 401) { reauth(); return; }
+
+      if (!st.ok) { fail(st.error || '员工名单读取失败'); return; }
+      S.staff = st.data || [];
+
+      /* 周记录不存在就建一条：ignore-duplicates，避免把已发布的周改回草稿 */
+      if (wk.ok && (!wk.data || !wk.data.length)) {
+        SR.db.insert('weeks', { week_key: week, status: 'draft' }, 'resolution=ignore-duplicates');
+      }
+
+      if (sh.ok && sh.data) {
+        sh.data.forEach(function (row) {
+          S.grid[row.staff_name + '|' + row.day] = { slot: row.slot || '', role: row.role || null };
+        });
+      }
+
+      S.published = (pv.ok && pv.data && pv.data[0]) ? pv.data[0] : null;
+      setSave('草稿已同步', 'ok');
+      renderAll();
+    }).catch(function (e) {
+      fail(String(e && e.message ? e.message : e));
+    });
+  }
+
+  function fail(msg) {
+    setSave('载入失败', 'bad');
+    $('#sheetWrap').innerHTML =
+      '<div class="empty"><b>班表没载入成功</b>' + esc(msg) +
+      '<div class="acts" style="max-width:200px;margin:16px auto 0">' +
+      '<button class="btn ghost block" type="button" onclick="location.reload()">重新加载</button></div></div>';
+  }
+
+  /* ---------------- 渲染 ---------------- */
+  function visibleStaff() {
+    var q = S.q.trim().toLowerCase();
+    return S.staff.filter(function (p) {
+      if (S.domain !== '*' && p.domain !== S.domain) return false;
+      if (!q) return true;
+      return (p.name + ' ' + (p.position || '') + ' ' + (p.module || '') + ' ' + (p.level || ''))
+        .toLowerCase().indexOf(q) >= 0;
+    });
+  }
+
+  function renderDomSeg() {
+    var counts = {};
+    S.staff.forEach(function (p) { counts[p.domain] = (counts[p.domain] || 0) + 1; });
+    var h = '<button type="button" data-dom="*"' + (S.domain === '*' ? ' class="on"' : '') + '>全部 ' +
+      S.staff.length + '</button>';
+    DOMAINS.forEach(function (d) {
+      if (!counts[d[0]]) return;
+      h += '<button type="button" data-dom="' + d[0] + '"' + (S.domain === d[0] ? ' class="on"' : '') + '>' +
+        d[1] + ' ' + counts[d[0]] + '</button>';
+    });
+    $('#domSeg').innerHTML = h;
+  }
+
+  function renderAll() {
+    renderDomSeg();
+    renderSheet();
+  }
+
+  function renderSheet() {
+    var list = visibleStaff();
+    if (!list.length) {
+      $('#sheetWrap').innerHTML = '<div class="empty"><b>没有匹配的员工</b>换个筛选或搜索词试试</div>';
+      updateCounts();
+      return;
+    }
+
+    var h = '<table class="grid"><thead><tr><th class="who">员工 <small>共 ' + list.length + ' 人</small></th>';
+    for (var i = 0; i < 7; i++) {
+      var d = addDays(parseYmd(S.week), i);
+      h += '<th class="' + (i >= 5 ? 'we' : '') + '">' + DAYS[i] +
+        '<span class="d">' + (d.getMonth() + 1) + '/' + d.getDate() + '</span></th>';
+    }
+    h += '</tr></thead><tbody>';
+
+    list.forEach(function (p) {
+      var si = S.staff.indexOf(p);
+      var meta = DOMAIN_LABEL[p.domain] || p.domain || '';
+      if (p.position) meta += ' · ' + p.position;
+      h += '<tr><td class="who"><b>' + esc(p.name) + '</b><small>' + esc(meta) + '</small></td>';
+      for (var day = 0; day < 7; day++) {
+        var k = p.name + '|' + day;
+        var slot = (S.grid[k] && S.grid[k].slot) || '';
+        h += '<td class="celltd"><button class="cell ' + SLOT_CLASS[slot] +
+          (S.dirty[k] ? ' dirty' : '') + '" type="button" data-si="' + si + '" data-day="' + day +
+          '" data-s="' + slot + '"' + (S.readonly ? ' disabled' : '') +
+          ' title="' + esc(p.name + ' · ' + DAYS[day]) + '">' + (SLOT_LABEL[slot] || '—') + '</button></td>';
+      }
+      h += '</tr>';
+    });
+
+    h += '</tbody><tfoot><tr><td class="who">每日人数</td>';
+    for (var k2 = 0; k2 < 7; k2++) h += '<td data-sum="' + k2 + '">0</td>';
+    h += '</tr></tfoot></table>';
+
+    $('#sheetWrap').innerHTML = h;
+    updateCounts();
+  }
+
+  function countDay(day) {
+    var n = 0;
+    visibleStaff().forEach(function (p) {
+      var c = S.grid[p.name + '|' + day];
+      if (c && c.slot && c.slot !== 'rest') n++;
+    });
+    return n;
+  }
+
+  function updateCounts() {
+    var sums = document.querySelectorAll('#sheetWrap td[data-sum]');
+    for (var i = 0; i < sums.length; i++) sums[i].textContent = countDay(Number(sums[i].getAttribute('data-sum')));
+
+    var list = visibleStaff(), cells = 0, working = 0, perStaff = 0;
+    list.forEach(function (p) {
+      var n = 0;
+      for (var d = 0; d < 7; d++) {
+        var c = S.grid[p.name + '|' + d];
+        if (c && c.slot) { cells++; if (c.slot !== 'rest') { working++; n++; } }
+      }
+      if (n) perStaff++;
+    });
+
+    $('#stats').innerHTML =
+      stat(cells, '已排格子') +
+      stat(perStaff, '本周有人上班') +
+      stat(working, '上班人次') +
+      stat(cells ? (working / 7).toFixed(1) : '0', '日均上班人数');
+
+    pubBadge();
+  }
+
+  function stat(n, k) {
+    return '<div class="stat"><div class="n">' + n + '</div><div class="k">' + k + '</div></div>';
+  }
+
+  function pubBadge() {
+    var b = $('#pubBadge');
+    b.hidden = false;
+    if (S.published) {
+      var dirty = Object.keys(S.dirty).length > 0;
+      b.className = 'badge ' + (dirty ? 'warn' : 'ok');
+      b.textContent = (dirty ? '有未发布改动 · ' : '已发布 ') + 'v' + S.published.version;
+    } else {
+      b.className = 'badge info';
+      b.textContent = '尚未发布';
+    }
+    var hasAny = Object.keys(S.grid).some(function (k) { return !!S.grid[k].slot; });
+    var btn = $('#publishBtn');
+    btn.disabled = S.readonly || S.saving || !hasAny;
+    btn.title = S.readonly ? '只读账号不能发布' : (!hasAny ? '这一周还没排班' : '');
+  }
+
+  /* ---------------- 编辑 ---------------- */
+  $('#sheetWrap').addEventListener('click', function (e) {
+    var btn = e.target && e.target.closest ? e.target.closest('.cell') : null;
+    if (!btn || btn.disabled || S.readonly) return;
+    var si = Number(btn.getAttribute('data-si'));
+    var day = Number(btn.getAttribute('data-day'));
+    var p = S.staff[si];
+    if (!p) return;
+    var k = p.name + '|' + day;
+    var cur = (S.grid[k] && S.grid[k].slot) || '';
+    var next = CYCLE[cur] || '';
+    setSlot(k, next, btn, day);
+  });
+
+  function setSlot(k, slot, btn, day) {
+    if (!S.grid[k]) S.grid[k] = { slot: '', role: null };
+    S.grid[k].slot = slot;
+    S.dirty[k] = true;
+
+    if (btn) {
+      btn.className = 'cell ' + SLOT_CLASS[slot] + ' dirty';
+      btn.setAttribute('data-s', slot);
+      btn.textContent = SLOT_LABEL[slot] || '—';
+    }
+    updateCounts();
+    schedule();
+  }
+
+  function schedule() {
+    clearTimeout(S.timer);
+    setSave('保存中…', '');
+    S.timer = setTimeout(flush, 700);
+  }
+
+  /* 把脏格子写回云端：有班次 → upsert；清空 → 删除该行 */
+  function flush() {
+    clearTimeout(S.timer);
+    var keys = Object.keys(S.dirty);
+    if (!keys.length) return Promise.resolve(true);
+    if (S.readonly) return Promise.resolve(false);
+
+    var up = [], del = [];
+    keys.forEach(function (k) {
+      var parts = k.split('|');
+      var cell = S.grid[k] || {};
+      var slot = cell.slot || '';
+      if (slot) {
+        up.push({
+          week_key: S.week,
+          staff_name: parts[0],
+          day: Number(parts[1]),
+          slot: slot,
+          role: cell.role || null
+        });
+      } else {
+        del.push(parts);
+      }
+    });
+
+    var jobs = [];
+    if (up.length) jobs.push(SR.db.upsert('shifts', up, 'week_key,staff_name,day'));
+    del.forEach(function (parts) {
+      jobs.push(SR.db.del('shifts', 'week_key=eq.' + S.week +
+        '&staff_name=eq.' + encodeURIComponent(parts[0]) + '&day=eq.' + Number(parts[1])));
+    });
+
+    S.saving = true;
+    pubBadge();
+
+    return Promise.all(jobs).then(function (res) {
+      S.saving = false;
+      var bad = res.filter(function (r) { return !r.ok; });
+      if (bad.length) {
+        if (bad[0].http === 401) { reauth(); return false; }
+        setSave('保存失败', 'bad');
+        SR.ui.toast('保存失败：' + (bad[0].error || '网络异常'), 'bad');
+        pubBadge();
+        return false;
+      }
+      keys.forEach(function (k) { if (S.dirty[k] && S.grid[k]) delete S.dirty[k]; });
+      setSave('草稿已同步', 'ok');
+      document.querySelectorAll('#sheetWrap .cell').forEach(function (el) {
+        var si = Number(el.getAttribute('data-si'));
+        var day = Number(el.getAttribute('data-day'));
+        var p = S.staff[si];
+        if (p) el.classList.toggle('dirty', !!S.dirty[p.name + '|' + day]);
+      });
+      pubBadge();
+      return true;
+    });
+  }
+
+  /* ---------------- 周切换 ---------------- */
+  function go(delta) {
+    flush().then(function () {
+      var d = parseYmd(S.week);
+      load(ymd(addDays(d, delta * 7)));
+    });
+  }
+
+  $('#prev').addEventListener('click', function () { go(-1); });
+  $('#next').addEventListener('click', function () { go(1); });
+  $('#today').addEventListener('click', function () {
+    var w = ymd(mondayOf(new Date()));
+    if (w === S.week) return;
+    flush().then(function () { load(w); });
+  });
+  $('#reload').addEventListener('click', function () {
+    if (Object.keys(S.dirty).length && !confirm('还有改动没保存，刷新会丢掉，继续？')) return;
+    load(S.week);
+  });
+
+  $('#domSeg').addEventListener('click', function (e) {
+    var b = e.target && e.target.closest ? e.target.closest('button') : null;
+    if (!b) return;
+    S.domain = b.getAttribute('data-dom') || '*';
+    renderDomSeg();
+    renderSheet();
+  });
+
+  $('#q').addEventListener('input', function () {
+    S.q = this.value;
+    renderSheet();
+  });
+
+  $('#logout').addEventListener('click', function () {
+    flush().then(function () {
+      SR.session.clear();
+      location.replace('login.html');
+    });
+  });
+
+  /* ---------------- 发布 ---------------- */
+  $('#publishBtn').addEventListener('click', function () {
+    if (S.readonly) return SR.ui.toast('只读账号不能发布', 'bad');
+    flush().then(function (ok) {
+      if (!ok) { SR.ui.toast('还有改动没同步成功，稍后再试', 'bad'); return; }
+      openPublish();
+    });
+  });
+
+  function counts() {
+    var staff = {}, cells = 0, working = 0;
+    Object.keys(S.grid).forEach(function (k) {
+      var c = S.grid[k];
+      if (!c || !c.slot) return;
+      var name = k.split('|')[0];
+      staff[name] = true;
+      cells++;
+      if (c.slot !== 'rest') working++;
+    });
+    return { staff: Object.keys(staff).length, cells: cells, working: working };
+  }
+
+  function openPublish() {
+    var c = counts();
+    if (!c.cells) return SR.ui.toast('这一周还是空的，先排几格', 'bad');
+    $('#dlgKv').innerHTML =
+      '<div><span>周次</span><b>' + esc(rangeText(S.week)) + '</b></div>' +
+      '<div><span>涉及员工</span><b>' + c.staff + ' 人</b></div>' +
+      '<div><span>班次格子</span><b>' + c.cells + ' 格（上班 ' + c.working + '）</b></div>' +
+      '<div><span>版本</span><b>' + (S.published ? 'v' + (S.published.version + 1) + '（覆盖 v' + S.published.version + '）' : 'v1') + '</b></div>';
+    $('#dlgNote').value = '';
+    showDlgErr('');
+    $('#overlay').classList.add('show');
+    setTimeout(function () { $('#dlgNote').focus(); }, 60);
+  }
+
+  /* 弹层里的错误条：把服务端 HTTP 码和 code 摊开，出问题一眼能看出是哪一步 */
+  function showDlgErr(msg) {
+    var box = $('#dlgErr');
+    if (!msg) { box.className = 'dlg-err'; box.textContent = ''; return; }
+    box.className = 'dlg-err show';
+    box.textContent = msg;
+  }
+
+  function closePublish() {
+    $('#overlay').classList.remove('show');
+    SR.ui.setLoading($('#dlgOk'), false);
+    $('#dlgOk').querySelector('.txt').textContent = '确认发布';
+    showDlgErr('');
+  }
+
+  $('#dlgCancel').addEventListener('click', function () { if (!S.busy) closePublish(); });
+  $('#overlay').addEventListener('click', function (e) {
+    if (e.target === this && !S.busy) closePublish();
+  });
+
+  $('#dlgOk').addEventListener('click', function () {
+    if (S.busy) return;
+    S.busy = true;
+    SR.ui.setLoading($('#dlgOk'), true);
+    $('#dlgOk').querySelector('.txt').textContent = '正在发布…';
+
+    SR.api.call('publish', {
+      method: 'POST',
+      body: { token: TOKEN, week_key: S.week, note: $('#dlgNote').value.trim() }
+    }).then(function (res) {
+      var d = res.data || {};
+      S.busy = false;
+      if (!d.ok) {
+        SR.ui.setLoading($('#dlgOk'), false);
+        $('#dlgOk').querySelector('.txt').textContent = '确认发布';
+        var c = d.code || '';
+        if (c === 'BAD_TOKEN' || c === 'NO_TOKEN' || c === 'DISABLED' || c === 'NO_PROFILE') {
+          closePublish();
+          return reauth();
+        }
+
+        /* 把真实原因摊出来：HTTP 404 基本都是 publish 函数还没部署 */
+        var why;
+        if (res.http === 404 || c === 'NOT_FOUND') {
+          why = '发布服务不存在（HTTP 404）：publish 函数还没部署到 Supabase';
+        } else if (res.http === 0) {
+          why = '网络中断，发布没有完成';
+        } else if (!d.error) {
+          why = '发布失败：HTTP ' + res.http + (d.message ? ' · ' + d.message : '');
+        } else {
+          why = d.error + (c ? '（' + c + '）' : '');
+        }
+        showDlgErr(why + ' · 你的草稿没有被改动，可以重试');
+        return SR.ui.toast(why, 'bad');
+      }
+      closePublish();
+      SR.ui.toast('已发布 v' + d.version + ' · ' + d.staff + ' 人可见', 'good');
+      load(S.week);
+    }).catch(function (e) {
+      S.busy = false;
+      SR.ui.setLoading($('#dlgOk'), false);
+      $('#dlgOk').querySelector('.txt').textContent = '确认发布';
+      showDlgErr('发布请求失败：' + String(e && e.message ? e.message : e) + ' · 草稿没有被改动');
+      SR.ui.toast('网络异常，发布没有完成', 'bad');
+    });
+  });
+
+  /* ---------------- 启动 ---------------- */
+  (function init() {
+    var rb = $('#roleBadge');
+    rb.textContent = ME.role === 'manager' ? '排班经理' : '只读';
+    rb.className = 'badge ' + (ME.role === 'manager' ? 'ok' : 'warn');
+
+    $('#hint').innerHTML = S.readonly
+      ? '只读账号：可以查看全部班表，但不能修改或发布。'
+      : '改动会自动保存为草稿（员工看不到）；点「发布本周」后员工端才会显示。';
+
+    load(ymd(mondayOf(new Date())));
+  })();
+})();
+</script>
+</body>
+</html>

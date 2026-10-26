@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#f5f5f7">
+<meta name="color-scheme" content="light dark">
+<title>我的班表 · 智能排班</title>
+<link rel="stylesheet" href="ui.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='24' fill='%231d1d1f'/><text x='50' y='66' font-size='46' font-family='system-ui' font-weight='700' text-anchor='middle' fill='%23fff'>SR</text></svg>">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-in">
+    <a class="brand-inline" href="me.html">
+      <span class="logo sm">SR</span><b>我的班表</b>
+    </a>
+    <span class="sep"></span>
+    <span class="badge info" id="meBadge">—</span>
+    <button class="btn plain sm" id="logout" type="button">退出</button>
+  </div>
+</header>
+
+<main class="wrap wb">
+
+  <div class="wb-head">
+    <div class="weeknav">
+      <button class="btn ghost sm" id="prev" type="button" aria-label="上一周">‹</button>
+      <span class="range" id="range">—</span>
+      <button class="btn ghost sm" id="next" type="button" aria-label="下一周">›</button>
+      <button class="btn plain sm" id="today" type="button">本周</button>
+    </div>
+    <span class="badge info" id="pubBadge">载入中…</span>
+    <span class="sep"></span>
+    <button class="btn ghost sm" id="reload" type="button">刷新</button>
+  </div>
+
+  <div id="body">
+    <div class="skeleton">正在载入班表…</div>
+  </div>
+
+  <p class="hint" id="hint">
+    这里只显示经理已经发布的班表。经理改草稿不会影响你看到的这一份。
+  </p>
+</main>
+
+<script src="auth-core.js"></script>
+<script>
+(function () {
+  'use strict';
+
+  var $ = SR.$;
+  var session = SR.session.get();
+  if (!session || !session.access_token) {
+    location.replace('login.html');
+    return;
+  }
+
+  var ME = {
+    username: session.username || '',
+    name: session.display_name || session.username || '',
+    role: session.role || 'employee'
+  };
+
+  if (ME.role !== 'employee') {
+    document.body.innerHTML =
+      '<main class="page"><section class="card auth" style="max-width:420px">' +
+      '<h2 class="h2">这是员工端</h2>' +
+      '<p class="sub">你的账号是' + (ME.role === 'viewer' ? '只读账号' : '排班经理') +
+      '，请到工作台查看全员班表。</p>' +
+      '<div class="acts"><a class="btn primary block" href="manager.html">进入排班工作台</a>' +
+      '<button class="btn ghost block" type="button" onclick="location.replace(\'login.html\')">切换账号</button></div>' +
+      '</section></main>';
+    return;
+  }
+
+  var DAYS = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
+  var SLOT_LABEL = { early: '早班', mid: '中班', night: '晚班', rest: '休息' };
+  var SLOT_CLASS = { early: 's-early', mid: 's-mid', night: 's-night', rest: 's-rest' };
+  var ROLE_LABEL = { open: '开店', close: '闭店' };
+
+  var S = {
+    week: '',
+    rows: [],          /* 该周自己那一份快照 */
+    pubs: [],          /* 自己的投递记录，用来判断哪个 publish_id 最新 */
+    rank: {},          /* publish_id -> 投递序号（越大越新） */
+    busy: false
+  };
+
+  /* ---------------- 日期 ---------------- */
+  function pad(n) { return (n < 10 ? '0' : '') + n; }
+  function ymd(d) { return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
+  function parseYmd(s) {
+    var p = String(s).split('-').map(Number);
+    return new Date(p[0], p[1] - 1, p[2]);
+  }
+  function mondayOf(d) {
+    var t = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    var dow = t.getDay();
+    t.setDate(t.getDate() + (dow === 0 ? -6 : 1 - dow));
+    return t;
+  }
+  function addDays(d, n) {
+    var t = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    t.setDate(t.getDate() + n);
+    return t;
+  }
+  function rangeText(week) {
+    var a = parseYmd(week), b = addDays(a, 6);
+    return a.getFullYear() + '/' + pad(a.getMonth() + 1) + '/' + pad(a.getDate()) +
+      ' – ' + pad(b.getMonth() + 1) + '/' + pad(b.getDate());
+  }
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+
+  function reauth() {
+    SR.session.clear();
+    SR.ui.toast('登录状态已失效，正在返回登录页…', 'bad');
+    setTimeout(function () { location.replace('login.html'); }, 900);
+  }
+
+  function setBadge(text, kind) {
+    var b = $('#pubBadge');
+    b.className = 'badge ' + kind;
+    b.textContent = text;
+  }
+
+  /* ---------------- 载入 ---------------- */
+  /* 为什么分两次查：
+       员工端只被 RLS 允许读「自己那一行」published_shifts 和「自己那条」publish_deliveries，
+       publish_versions（版本号 / 发布时间）对员工不可见。
+       投递表 id 是 identity 自增，天然按发布时间递增，
+       所以用「投递 id 最大的 publish_id」来认定该周的最新一版。 */
+  function load(week) {
+    S.week = week;
+    $('#range').textContent = rangeText(week);
+    $('#body').innerHTML = '<div class="skeleton">正在载入 ' + esc(rangeText(week)) + ' 的班表…</div>';
+    setBadge('载入中…', 'info');
+
+    return Promise.all([
+      SR.db.select('published_shifts',
+        'week_key=eq.' + week + '&select=publish_id,day,slot,role'),
+      SR.db.select('publish_deliveries',
+        'select=id,publish_id&order=id.desc&limit=500')
+    ]).then(function (r) {
+      var sh = r[0], dl = r[1];
+      if (sh.http === 401 || dl.http === 401) { reauth(); return; }
+
+      if (!sh.ok) { fail(sh.error || '班表读取失败'); return; }
+
+      S.pubs = (dl.ok && dl.data) ? dl.data : [];
+      S.rank = {};
+      S.pubs.forEach(function (p, i) {
+        /* order=id.desc，越靠前越新；用「倒序名次」当排序权重 */
+        S.rank[p.publish_id] = S.pubs.length - i;
+      });
+
+      /* 同一周若发布过多次，只保留最新一版 */
+      var all = (sh.data || []).filter(function (x) { return x.publish_id; });
+      var best = '';
+      all.forEach(function (x) {
+        var w = S.rank[x.publish_id] || 0;
+        if (!best || w > (S.rank[best] || 0)) best = x.publish_id;
+      });
+      S.rows = best ? all.filter(function (x) { return x.publish_id === best; }) : [];
+
+      render();
+    }).catch(function (e) {
+      fail(String(e && e.message ? e.message : e));
+    });
+  }
+
+  function fail(msg) {
+    setBadge('读取失败', 'bad');
+    $('#body').innerHTML =
+      '<div class="emptyblock"><div class="empty"><b>班表没载入成功</b>' + esc(msg) +
+      '<div class="acts" style="max-width:200px;margin:16px auto 0">' +
+      '<button class="btn ghost block" type="button" onclick="location.reload()">重新加载</button></div></div></div>';
+  }
+
+  /* ---------------- 渲染 ---------------- */
+  function render() {
+    var byDay = {};
+    S.rows.forEach(function (r) { byDay[r.day] = r; });
+
+    if (!S.rows.length) {
+      setBadge('未发布', 'info');
+      $('#body').innerHTML =
+        '<div class="emptyblock"><div class="empty"><b>这一周还没有发布班表</b>' +
+        '如果经理说已经发了，可能是这个账号还没绑定员工档案，联系经理确认一下。' +
+        '<div class="acts" style="max-width:220px;margin:16px auto 0">' +
+        '<button class="btn ghost block" type="button" id="backWeek">回到本周</button></div></div></div>';
+      var bw = $('#backWeek');
+      if (bw) bw.addEventListener('click', function () { goWeek(0); });
+      return;
+    }
+
+    setBadge('已发布', 'ok');
+
+    var today = ymd(new Date());
+    var working = 0, resting = 0;
+
+    var h = '<div class="myweek">';
+    for (var day = 0; day < 7; day++) {
+      var d = addDays(parseYmd(S.week), day);
+      var key = ymd(d);
+      var cell = byDay[day] || null;
+      var slot = cell && cell.slot ? cell.slot : '';
+      if (slot && slot !== 'rest') working++;
+      if (slot === 'rest') resting++;
+
+      h += '<div class="dayrow' + (key === today ? ' today' : '') + '">' +
+        '<div class="dw"><b>' + DAYS[day] + '</b><span>' + (d.getMonth() + 1) + '/' + d.getDate() +
+        (key === today ? ' · 今天' : '') + '</span></div>' +
+        '<div class="dshift">' +
+        (slot
+          ? '<span class="chip ' + SLOT_CLASS[slot] + '">' + SLOT_LABEL[slot] + '</span>'
+          : '<span class="chip s-none">未排班</span>') +
+        (cell && cell.role && ROLE_LABEL[cell.role]
+          ? '<span class="role-tag">' + ROLE_LABEL[cell.role] + '</span>' : '') +
+        '</div></div>';
+    }
+
+    h += '<div class="myweek-sum">' +
+      '<span>本周上班 <b>' + working + '</b> 天</span>' +
+      '<span>休息 <b>' + resting + '</b> 天</span>' +
+      '<span>未排 <b>' + (7 - S.rows.length) + '</b> 天</span>' +
+      '</div></div>';
+
+    $('#body').innerHTML = h;
+  }
+
+  /* ---------------- 周切换 ---------------- */
+  function goWeek(delta) {
+    var base = mondayOf(new Date());
+    var target = delta === 0 ? base : addDays(parseYmd(S.week), delta * 7);
+    if (ymd(target) === S.week) return;
+    load(ymd(target));
+  }
+
+  $('#prev').addEventListener('click', function () { goWeek(-1); });
+  $('#next').addEventListener('click', function () { goWeek(1); });
+  $('#today').addEventListener('click', function () { goWeek(0); });
+  $('#reload').addEventListener('click', function () { load(S.week); });
+
+  $('#logout').addEventListener('click', function () {
+    SR.session.clear();
+    location.replace('login.html');
+  });
+
+  /* ---------------- 启动 ---------------- */
+  (function init() {
+    var b = $('#meBadge');
+    b.className = 'badge ok';
+    b.textContent = ME.name;
+    load(ymd(mondayOf(new Date())));
+  })();
+})();
+</script>
+</body>
+</html>

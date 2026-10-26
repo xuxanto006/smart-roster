@@ -319,6 +319,73 @@
     btn.classList.toggle('loading', !!on);
   }
 
+  /* ---------------- 数据层：用当前会话直接访问 Supabase REST ----------------
+     为什么不让 Edge Function 中转：
+       班表的读/写是「按行授权」的典型场景，RLS 已经写好（is_editor 可写、
+       is_manager 可读、员工只能读自己那一行）。前端带用户 token 直连，权限由
+       数据库裁决，而不是靠前端自觉。
+     注意：这里带 apikey / Authorization 头，会走 CORS 预检；Supabase REST 对预检
+       支持完备，不像 Edge Functions 那样需要刻意避开。 */
+  function rest(path, opts) {
+    var s = getSession();
+    if (!s || !s.access_token) {
+      return Promise.resolve({
+        http: 401, ok: false, data: null,
+        code: 'NO_TOKEN', error: '登录状态已失效'
+      });
+    }
+    var o = opts || {};
+    var headers = { apikey: KEY, Authorization: 'Bearer ' + s.access_token };
+    var init = { method: o.method || 'GET', cache: 'no-store', headers: headers };
+    if (o.body !== undefined && o.body !== null) {
+      headers['Content-Type'] = 'application/json';
+      init.body = JSON.stringify(o.body);
+    }
+    if (o.prefer) headers.Prefer = o.prefer;
+
+    return fetch(BASE + '/rest/v1/' + path, init).then(function (r) {
+      return r.text().then(function (text) {
+        var data = null;
+        if (text) { try { data = JSON.parse(text); } catch (e) { data = null; } }
+        return {
+          http: r.status,
+          ok: r.ok,
+          data: data,
+          code: r.ok ? 'ok' : (data && (data.code || data.message)) || ('HTTP_' + r.status),
+          error: r.ok ? '' : ((data && (data.message || data.hint || data.details)) || ('请求失败 ' + r.status))
+        };
+      });
+    }).catch(function (e) {
+      return {
+        http: 0, ok: false, data: null, code: 'NETWORK',
+        error: '网络异常' + (e && e.message ? '：' + e.message : '')
+      };
+    });
+  }
+
+  var db = {
+    select: function (table, query) {
+      return rest(table + (query ? '?' + query : ''), {});
+    },
+    insert: function (table, rows, prefer) {
+      return rest(table, { method: 'POST', body: rows, prefer: prefer || 'return=representation' });
+    },
+    upsert: function (table, rows, onConflict) {
+      var q = onConflict ? '?on_conflict=' + encodeURIComponent(onConflict).replace(/%2C/g, ',') : '';
+      return rest(table + q, {
+        method: 'POST',
+        body: rows,
+        prefer: 'resolution=merge-duplicates,return=representation'
+      });
+    },
+    patch: function (table, query, patch) {
+      return rest(table + '?' + query, { method: 'PATCH', body: patch, prefer: 'return=representation' });
+    },
+    del: function (table, query) {
+      return rest(table + '?' + query, { method: 'DELETE', prefer: 'return=minimal' });
+    }
+  };
+
   window.SR = {
     BASE: BASE,
     KEY: KEY,
@@ -327,6 +394,7 @@
     deviceId: deviceId,
     ua: ua,
     api: { call: call, captcha: captcha, login: login, register: register, checkInvite: checkInvite },
+    db: db,
     session: {
       save: saveSession,
       get: getSession,

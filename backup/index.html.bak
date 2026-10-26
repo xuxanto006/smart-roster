@@ -1,0 +1,943 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>团队智能排班系统</title>
+<style>
+:root{
+  --primary:#2f54eb; --primary-light:#eef3ff;
+  --early:#f28b2b; --early-bg:#fff3e6;
+  --mid:#13c2c2; --mid-bg:#e6fffb;
+  --night:#722ed1; --night-bg:#f9f0ff;
+  --rest:#9ca3af; --rest-bg:#f4f5f7;
+  --danger:#e5484d;
+  --text:#1f2329; --text2:#646a73; --border:#e5e6eb;
+  --bg:#f5f6f8; --card:#ffffff;
+  --green:#2ea44f;
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--text);padding-bottom:60px;}
+header{background:linear-gradient(135deg,#2f54eb,#1d39c4);color:#fff;padding:22px 28px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;}
+header h1{font-size:20px;font-weight:600;display:flex;align-items:center;gap:10px;}
+header .sub{font-size:12px;opacity:.85;margin-top:4px;}
+.container{max-width:1280px;margin:0 auto;padding:20px;}
+.card{background:var(--card);border-radius:12px;padding:18px 20px;box-shadow:0 1px 3px rgba(0,0,0,.06);margin-bottom:16px;}
+.card h2{font-size:15px;font-weight:600;margin-bottom:12px;display:flex;align-items:center;gap:8px;}
+.card h2 .tag{font-size:11px;font-weight:400;color:var(--text2);}
+.row{display:flex;flex-wrap:wrap;gap:10px;align-items:center;}
+input[type=text],input[type=number],select{border:1px solid var(--border);border-radius:8px;padding:7px 10px;font-size:13px;outline:none;background:#fff;color:var(--text);}
+input:focus,select:focus{border-color:var(--primary);box-shadow:0 0 0 2px rgba(47,84,235,.12);}
+button{border:none;border-radius:8px;padding:8px 16px;font-size:13px;cursor:pointer;transition:.15s;font-weight:500;}
+.btn-primary{background:var(--primary);color:#fff;}
+.btn-primary:hover{background:#1d39c4;}
+.btn-ghost{background:#fff;border:1px solid var(--border);color:var(--text);}
+.btn-ghost:hover{border-color:var(--primary);color:var(--primary);}
+.btn-danger{background:#fff;border:1px solid #ffd6d6;color:var(--danger);}
+.btn-danger:hover{background:#fff1f0;}
+.btn-sm{padding:4px 10px;font-size:12px;border-radius:6px;}
+
+/* 人员列表 */
+.staff-list{display:flex;flex-wrap:wrap;gap:8px;}
+.staff-chip{display:flex;align-items:center;gap:8px;background:var(--primary-light);color:var(--primary);border-radius:20px;padding:5px 6px 5px 14px;font-size:13px;}
+.staff-chip .avatar{width:24px;height:24px;border-radius:50%;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center;font-size:12px;}
+.staff-chip button{background:none;color:var(--primary);font-size:14px;padding:0 6px;line-height:1;}
+
+/* 周导航 */
+.week-nav{display:flex;align-items:center;gap:14px;justify-content:center;margin-bottom:4px;}
+.week-nav .week-label{font-size:16px;font-weight:600;min-width:220px;text-align:center;}
+.arrow{width:32px;height:32px;border-radius:50%;background:#fff;border:1px solid var(--border);font-size:15px;cursor:pointer;color:var(--text);}
+.arrow:hover{border-color:var(--primary);color:var(--primary);}
+
+/* 排班表 */
+table{width:100%;border-collapse:separate;border-spacing:4px;font-size:13px;}
+th{font-weight:600;color:var(--text2);padding:6px 4px;font-size:12px;}
+th.day-head{position:relative;}
+th .need{display:block;font-weight:400;font-size:10px;color:var(--text2);margin-top:2px;}
+th.today{color:var(--danger);}
+td.name-cell,th.name-head{text-align:left;padding:6px 10px;min-width:88px;font-weight:500;}
+tbody tr:hover td.name-cell{background:var(--primary-light);border-radius:8px;}
+.shift-cell{border-radius:8px;padding:9px 4px;text-align:center;font-weight:600;cursor:pointer;user-select:none;transition:.12s;position:relative;border:1.5px solid transparent;}
+.shift-cell:hover{transform:scale(1.05);box-shadow:0 2px 8px rgba(0,0,0,.12);z-index:2;}
+.shift-cell.early{background:var(--early-bg);color:var(--early);border-color:#ffd8ae;}
+.shift-cell.mid{background:var(--mid-bg);color:var(--mid);border-color:#a8eae8;}
+.shift-cell.night{background:var(--night-bg);color:var(--night);border-color:#d9bcf5;}
+.shift-cell.rest{background:var(--rest-bg);color:var(--rest);}
+.shift-cell.empty{background:#fff;border:1.5px dashed var(--border);color:#c2c7cf;}
+.shift-cell.conflict{outline:2px solid var(--danger);}
+tfoot td{padding:8px 4px;text-align:center;color:var(--text2);font-size:12px;}
+tfoot td .ok{color:var(--green);font-weight:600;}
+tfoot td .short{color:var(--danger);font-weight:600;}
+
+/* 统计 */
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--text2);margin-top:10px;}
+.legend .dot{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;vertical-align:-1px;}
+.stat-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:10px;}
+.stat-card{border:1px solid var(--border);border-radius:10px;padding:12px;}
+.stat-card .sname{font-weight:600;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;}
+.stat-bar{display:flex;height:8px;border-radius:4px;overflow:hidden;margin-bottom:8px;}
+.stat-bar .b1{background:var(--early);} .stat-bar .b2{background:var(--mid);} .stat-bar .b3{background:var(--night);} .stat-bar .b0{background:#e5e6eb;}
+.stat-meta{font-size:12px;color:var(--text2);display:flex;justify-content:space-between;}
+.stat-meta b{color:var(--text);}
+.badge-warn{background:#fff7e6;color:#d46b08;border-radius:10px;padding:2px 8px;font-size:11px;}
+.badge-ok{background:#f0fff4;color:var(--green);border-radius:10px;padding:2px 8px;font-size:11px;}
+.badge-off{background:var(--rest-bg);color:var(--rest);border-radius:10px;padding:2px 8px;font-size:11px;}
+
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(80px);background:#1f2329;color:#fff;padding:10px 20px;border-radius:10px;font-size:13px;opacity:0;transition:.3s;z-index:99;pointer-events:none;max-width:90vw;}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+
+.modal-mask{display:none;position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:50;align-items:center;justify-content:center;}
+.modal-mask.show{display:flex;}
+.modal{background:#fff;border-radius:14px;padding:22px;width:340px;max-width:92vw;}
+.modal h3{font-size:15px;margin-bottom:14px;}
+.modal .opt{display:flex;align-items:center;gap:10px;padding:10px 12px;border:1.5px solid var(--border);border-radius:10px;margin-bottom:8px;cursor:pointer;font-size:14px;}
+.modal .opt:hover{border-color:var(--primary);}
+.modal .opt .color-dot{width:14px;height:14px;border-radius:4px;}
+.modal .opt .time{font-size:11px;color:var(--text2);margin-left:auto;}
+
+.hint{font-size:12px;color:var(--text2);margin-top:10px;line-height:1.7;}
+.hint b{color:var(--primary);}
+.empty-tip{text-align:center;color:var(--text2);padding:40px 0;font-size:14px;}
+@media print{
+  header,.card.no-print,button,.arrow{display:none!important;}
+  body{background:#fff;padding:0;}
+  .card{box-shadow:none;border:none;padding:0;}
+  .shift-cell{border:1px solid #ddd;}
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>📅 团队智能排班系统</h1>
+    <div class="sub">团队 32 人 ｜ 工作日早≥8 · 中1 · 晚≥10，周末早9 · 中3 · 晚≥12 ｜ 每人每周恰好休 2 天，晚班次日不接早班</div>
+  </div>
+  <div class="row">
+    <button class="btn-ghost" onclick="exportCSV()">⬇ 导出 Excel</button>
+    <button class="btn-ghost" onclick="window.print()">🖨 打印</button>
+  </div>
+</header>
+
+<div class="container">
+
+  <!-- 人员管理 -->
+  <div class="card no-print">
+    <h2>👥 人员管理 <span class="tag" id="staffCount"></span></h2>
+    <div class="row" style="margin-bottom:12px;">
+      <input type="text" id="newStaffName" placeholder="输入姓名，回车添加" style="width:200px" onkeydown="if(event.key==='Enter')addStaff()">
+      <button class="btn-primary" onclick="addStaff()">＋ 添加人员</button>
+    </div>
+    <div class="staff-list" id="staffList"></div>
+  </div>
+
+  <!-- 班次需求 -->
+  <div class="card no-print">
+    <h2>⚙️ 每日班次需求（每班需要人数）<span class="tag">可在表头单独微调每一天</span></h2>
+    <div class="row">
+      <span style="font-size:13px;color:var(--text2);font-weight:600">工作日(周一~五)</span>
+      <label style="font-size:13px;display:flex;align-items:center;gap:6px;">
+        <span style="width:12px;height:12px;border-radius:3px;background:var(--early);display:inline-block"></span>早班(≥)
+        <input type="number" id="needEarly" min="0" value="8" style="width:56px" onchange="applyGlobalNeed()">
+      </label>
+      <label style="font-size:13px;display:flex;align-items:center;gap:6px;">
+        <span style="width:12px;height:12px;border-radius:3px;background:var(--mid);display:inline-block"></span>中班
+        <input type="number" id="needMid" min="0" value="1" style="width:56px" onchange="applyGlobalNeed()">
+      </label>
+      <label style="font-size:13px;display:flex;align-items:center;gap:6px;">
+        <span style="width:12px;height:12px;border-radius:3px;background:var(--night);display:inline-block"></span>晚班(≥)
+        <input type="number" id="needNight" min="0" value="10" style="width:56px" onchange="applyGlobalNeed()">
+      </label>
+      <span style="width:14px"></span>
+      <span style="font-size:13px;color:var(--text2);font-weight:600">周末(周六/日)</span>
+      <label style="font-size:13px;display:flex;align-items:center;gap:6px;">
+        <span style="width:12px;height:12px;border-radius:3px;background:var(--early);display:inline-block"></span>早班(≥)
+        <input type="number" id="wkNeedEarly" min="0" value="9" style="width:56px" onchange="applyGlobalNeed()">
+      </label>
+      <label style="font-size:13px;display:flex;align-items:center;gap:6px;">
+        <span style="width:12px;height:12px;border-radius:3px;background:var(--mid);display:inline-block"></span>中班
+        <input type="number" id="wkNeedMid" min="0" value="3" style="width:56px" onchange="applyGlobalNeed()">
+      </label>
+      <label style="font-size:13px;display:flex;align-items:center;gap:6px;">
+        <span style="width:12px;height:12px;border-radius:3px;background:var(--night);display:inline-block"></span>晚班(≥)
+        <input type="number" id="wkNeedNight" min="0" value="12" style="width:56px" onchange="applyGlobalNeed()">
+      </label>
+    </div>
+    <div class="row" style="margin-top:10px;padding-top:10px;border-top:1px dashed var(--border)">
+      <span style="font-size:13px;color:var(--text2);font-weight:600">每人每周班次上限</span>
+      <label style="font-size:13px;display:flex;align-items:center;gap:6px;">
+        <span style="width:12px;height:12px;border-radius:3px;background:var(--early);display:inline-block"></span>早班 ≤
+        <input type="number" id="limitEarly" min="1" max="7" value="3" style="width:56px" onchange="setLimits()">
+      </label>
+      <label style="font-size:13px;display:flex;align-items:center;gap:6px;">
+        <span style="width:12px;height:12px;border-radius:3px;background:var(--night);display:inline-block"></span>晚班 ≤
+        <input type="number" id="limitNight" min="1" max="7" value="4" style="width:56px" onchange="setLimits()">
+      </label>
+      <span style="font-size:12px;color:var(--text2)">中班不设上限</span>
+      <span style="font-size:12px;color:var(--text2);margin-left:auto" id="demandInfo"></span>
+    </div>
+    <div class="hint">提示：工作日每天共需 <b id="dailyTotal">—</b> 人次，周末每天共需 <b id="wkDailyTotal">—</b> 人次。按每人每周上班 5 天计算，当前配置建议团队人数为 <b id="suggestStaff">—</b> 人。</div>
+  </div>
+
+  <!-- 排班表 -->
+  <div class="card">
+    <div class="week-nav no-print">
+      <button class="arrow" onclick="changeWeek(-1)">‹</button>
+      <div class="week-label" id="weekLabel"></div>
+      <button class="arrow" onclick="changeWeek(1)">›</button>
+    </div>
+    <div class="row no-print" style="justify-content:center;margin-bottom:14px;">
+      <button class="btn-primary" onclick="autoSchedule()">✨ 一键智能排班（本周）</button>
+      <button class="btn-ghost" onclick="clearWeek()">清空本周</button>
+      <button class="btn-ghost" onclick="copyPrevWeek()">复制上周班表</button>
+    </div>
+    <div style="overflow-x:auto">
+      <table id="scheduleTable">
+        <thead id="tableHead"></thead>
+        <tbody id="tableBody"></tbody>
+        <tfoot id="tableFoot"></tfoot>
+      </table>
+    </div>
+    <div class="legend">
+      <span><span class="dot" style="background:var(--early)"></span>早班 08:00–16:00</span>
+      <span><span class="dot" style="background:var(--mid)"></span>中班 12:00–20:00</span>
+      <span><span class="dot" style="background:var(--night)"></span>晚班 16:00–24:00</span>
+      <span><span class="dot" style="background:var(--rest)"></span>休息</span>
+      <span style="margin-left:auto">💡 点击任意格子切换：早 → 中 → 晚 → 休 → 空</span>
+    </div>
+    <div class="legend">
+      <span>🧩 智能排班规则：每人每周<b style="color:var(--primary)">恰好休 2 天</b> ｜ 早班 ≤3 / 晚班 ≤4（可调）｜ <b style="color:var(--primary)">晚班次日不接早班</b> ｜ 休息日不连续、错开不扎堆 ｜ 多出人力自动补到早/晚班</span>
+    </div>
+  </div>
+
+  <!-- 统计 -->
+  <div class="card">
+    <h2>📊 本周个人班次统计</h2>
+    <div class="stat-grid" id="statGrid"></div>
+  </div>
+
+  <div class="hint" style="text-align:center;margin-top:4px">
+    数据保存在浏览器本地（localStorage），换电脑或清除浏览器数据前请先导出 Excel 备份。
+  </div>
+</div>
+
+<!-- 点击格子弹窗 -->
+<div class="modal-mask" id="modalMask" onclick="if(event.target===this)closeModal()">
+  <div class="modal">
+    <h3 id="modalTitle">设置班次</h3>
+    <div class="opt" onclick="setCell('early')"><span class="color-dot" style="background:var(--early)"></span>早班<span class="time">08:00–16:00</span></div>
+    <div class="opt" onclick="setCell('mid')"><span class="color-dot" style="background:var(--mid)"></span>中班<span class="time">12:00–20:00</span></div>
+    <div class="opt" onclick="setCell('night')"><span class="color-dot" style="background:var(--night)"></span>晚班<span class="time">16:00–24:00</span></div>
+    <div class="opt" onclick="setCell('rest')"><span class="color-dot" style="background:#c2c7cf"></span>休息</div>
+    <div class="opt" onclick="setCell('')" style="color:var(--text2)">清空（未安排）</div>
+    <button class="btn-ghost" style="width:100%;margin-top:6px" onclick="closeModal()">取消</button>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* ============ 数据模型 ============
+schedule = { [weekKey]: { [staffName]: ["early","mid","rest",...] 长度7，""为未安排 } }
+needs = { [dayIndex 0-6]: {early,mid,night} }
+weekKey: 该周周一的日期字符串 yyyy-mm-dd
+==================================== */
+const SHIFT_NAMES = {early:"早", mid:"中", night:"晚", rest:"休", "":"－"};
+const DAY_NAMES = ["周一","周二","周三","周四","周五","周六","周日"];
+const STORE_KEY = "shiftScheduler_v2";
+
+let state = {
+  staff: [],
+  // 工作日（周一~五）：早≥8 中1 晚≥10；周末（周六/日）：早9 中3 晚≥12
+  needs: [
+    {early:8, mid:1, night:10}, {early:8, mid:1, night:10}, {early:8, mid:1, night:10},
+    {early:8, mid:1, night:10}, {early:8, mid:1, night:10},
+    {early:9, mid:3, night:12}, {early:9, mid:3, night:12}
+  ],
+  needsV: 3, // 需求配置版本，规则变更时升级以刷新老数据
+  limits: {early:3, night:4, mid:99}, // 每人每周各班次上限
+  schedule: {} // weekKey -> {name: [7]}
+};
+
+function mondayOf(d){
+  const x = new Date(d);
+  const day = (x.getDay()+6)%7; // 0=周一
+  x.setDate(x.getDate()-day);
+  x.setHours(0,0,0,0);
+  return x;
+}
+function fmt(d){ return d.toISOString().slice(0,10); }
+function fmtCN(d){ return `${d.getMonth()+1}月${d.getDate()}日`; }
+let currentMonday = mondayOf(new Date());
+
+/* ---------- 存储 ---------- */
+function save(){
+  localStorage.setItem(STORE_KEY, JSON.stringify({
+    staff: state.staff,
+    needs: state.needs,
+    needsV: state.needsV,
+    limits: state.limits,
+    schedule: state.schedule
+  }));
+}
+function defaultNeeds(){
+  return [
+    {early:8, mid:1, night:10}, {early:8, mid:1, night:10}, {early:8, mid:1, night:10},
+    {early:8, mid:1, night:10}, {early:8, mid:1, night:10},
+    {early:9, mid:3, night:12}, {early:9, mid:3, night:12}
+  ];
+}
+function load(){
+  try{
+    const raw = localStorage.getItem(STORE_KEY);
+    if(raw){
+      const o = JSON.parse(raw);
+      if(o.staff) state.staff = o.staff;
+      // 需求规则版本不一致时重置为最新默认（周末差异化配置等）
+      if(o.needsV === state.needsV && o.needs) state.needs = o.needs;
+      if(o.limits) state.limits = Object.assign({early:3,night:4,mid:99}, o.limits);
+      if(o.schedule) state.schedule = o.schedule;
+    }
+  }catch(e){}
+}
+
+/* ---------- 工具 ---------- */
+function toast(msg){
+  const t = document.getElementById("toast");
+  t.textContent = msg;
+  t.classList.add("show");
+  clearTimeout(t._tm);
+  t._tm = setTimeout(()=>t.classList.remove("show"), 2600);
+}
+function weekKeyOf(mon){ return fmt(mon); }
+function curKey(){ return weekKeyOf(currentMonday); }
+function getWeek(k){ return state.schedule[k] || null; }
+function ensureWeek(k){
+  if(!state.schedule[k]){
+    const w = {};
+    state.staff.forEach(n=>{ w[n] = ["","","","","","",""]; });
+    state.schedule[k] = w;
+  }
+  // 补新增员工 / 删多余
+  const w = state.schedule[k];
+  state.staff.forEach(n=>{ if(!w[n]) w[n]=["","","","","","",""]; });
+  Object.keys(w).forEach(n=>{ if(!state.staff.includes(n)) delete w[n]; });
+  return w;
+}
+
+/* ---------- 人员 ---------- */
+function addStaff(){
+  const inp = document.getElementById("newStaffName");
+  // 支持批量：用逗号/顿号/空格分隔多个姓名一次添加
+  const names = inp.value.split(/[,，、;；\s]+/).map(s=>s.trim()).filter(Boolean);
+  if(names.length===0){ toast("请输入姓名（多个姓名用逗号或空格分隔）"); return; }
+  let added = 0, dup = 0;
+  names.forEach(name=>{
+    if(state.staff.includes(name)){ dup++; return; }
+    state.staff.push(name); added++;
+  });
+  inp.value = "";
+  save(); renderAll();
+  if(added && dup) toast(`已添加 ${added} 人，${dup} 人重名跳过`);
+  else if(added) toast(`已添加 ${added} 人`);
+  else toast("姓名均已存在");
+}
+function removeStaff(name){
+  if(!confirm(`确定删除「${name}」吗？其历史排班也将清除。`)) return;
+  state.staff = state.staff.filter(n=>n!==name);
+  Object.values(state.schedule).forEach(w=>{ delete w[name]; });
+  save(); renderAll();
+  toast(`已删除「${name}」`);
+}
+
+/* ---------- 班次需求 ---------- */
+function applyGlobalNeed(){
+  const e  = Math.max(0, +document.getElementById("needEarly").value||0);
+  const m  = Math.max(0, +document.getElementById("needMid").value||0);
+  const n  = Math.max(0, +document.getElementById("needNight").value||0);
+  const we = Math.max(0, +document.getElementById("wkNeedEarly").value||0);
+  const wm = Math.max(0, +document.getElementById("wkNeedMid").value||0);
+  const wn = Math.max(0, +document.getElementById("wkNeedNight").value||0);
+  state.needs = state.needs.map((_,i)=>{
+    if(i===5 || i===6) return {early:we, mid:wm, night:wn};  // 周六/周日
+    return {early:e, mid:m, night:n};                         // 工作日
+  });
+  save(); renderAll();
+}
+
+function setLimits(){
+  state.limits.early = Math.min(7, Math.max(1, +document.getElementById("limitEarly").value||3));
+  state.limits.night = Math.min(7, Math.max(1, +document.getElementById("limitNight").value||4));
+  save();
+  document.getElementById("limitEarly").value = state.limits.early;
+  document.getElementById("limitNight").value = state.limits.night;
+  renderStats();
+  toast(`已更新上限：每人每周早班 ≤${state.limits.early}、晚班 ≤${state.limits.night}，重新点「智能排班」生效`);
+}
+
+/* ---------- 自动排班 ---------- */
+function autoSchedule(){
+  if(state.staff.length < 2){ toast("请先添加至少 2 名人员"); return; }
+  const k = curKey();
+  const S = ["early","mid","night"];
+  const N = state.staff.length;
+  const totalDemand = state.needs.reduce((s,d)=>s + (+d.early||0)+(+d.mid||0)+(+d.night||0), 0);
+  const capacity = N * 5;
+
+  // 需求量：[{day, shift, need}] 展开为槽位
+  const slots = [];
+  state.needs.forEach((d,di)=>{
+    S.forEach(sh=>{
+      for(let i=0;i<(+d[sh]||0);i++) slots.push({day:di, shift:sh});
+    });
+  });
+
+  if(totalDemand > capacity){
+    if(!confirm(`当前需求共 ${totalDemand} 人次，但 ${N} 人 × 每周 5 个工作日 = ${capacity} 人次。\n若继续，将无法同时满足「每人恰好休 2 天」和「班次全覆盖」。\n点击“确定”仍要排班（部分班次会缺人），或取消后增加人数/降低需求。`)) return;
+  }
+  // 检查班次上限是否导致最低需求都排不下：某班需求 > N × 该班上限
+  const baseCnt = {early:0, mid:0, night:0};
+  slots.forEach(s=>baseCnt[s.shift]++);
+  const badShift = S.filter(sh=> baseCnt[sh] > N * (state.limits[sh]||99));
+  if(badShift.length){
+    const names = {early:"早班", mid:"中班", night:"晚班"};
+    const detail = badShift.map(sh=>`${names[sh]}最低需求 ${baseCnt[sh]} 人次，但 ${N} 人 × 上限 ${state.limits[sh]} = ${N*state.limits[sh]} 人次，上限卡死无法覆盖`).join("\n");
+    if(!confirm(detail + "\n\n点击“确定”仍要排班（该班次会缺人），或取消后放宽上限/增加人数。")) return;
+  }
+
+  // 每人恰好休 2 天（上满 5 天）：人力若有富余，多出的人次补到「至少」类班次（早班/晚班）
+  // 补位策略：优先补上限容量富余比例大的班次；每天补到当天班次最少的日子，保持均衡
+  const minDemand = slots.length;
+  let extra = capacity - minDemand;
+  if(extra > 0){
+    const cur = {early:0, mid:0, night:0};
+    const dayCnt = new Array(7).fill(0);
+    slots.forEach(s=>{ cur[s.shift]++; dayCnt[s.day]++; });
+    const flex = ["early","night"];
+    let guard = 0;
+    while(extra > 0 && guard < 500){
+      guard++;
+      let pickSh = null, bestRoom = -Infinity;
+      flex.forEach(sh=>{
+        const cap = N * (state.limits[sh]||99);
+        if(cur[sh] >= cap) return;
+        const room = (cap - cur[sh]) / cap;
+        if(room > bestRoom){ bestRoom = room; pickSh = sh; }
+      });
+      if(!pickSh) break; // 各班上限已满，富余人力无处可补（会出现空班）
+      const day = dayCnt.indexOf(Math.min(...dayCnt));
+      slots.push({day, shift:pickSh});
+      cur[pickSh]++; dayCnt[day]++; extra--;
+    }
+  }
+
+  // 尝试多次随机贪心，取最优
+  let best = null, bestScore = -Infinity;
+  for(let attempt=0; attempt<300; attempt++){
+    const plan = tryPlan(slots, N);
+    if(plan){
+      const score = planScore(plan);
+      if(score > bestScore){ bestScore = score; best = plan; }
+      const covered = plan.assign.reduce((s,a)=>s+a.length,0);
+      const wd5 = plan.assign.every(a=>a.length===5);
+      const noNE = !plan.assign.some(a=>{
+        const ds={}; a.forEach(x=>ds[x.day]=x.shift);
+        for(let d=0;d<7;d++) if(ds[d]==="night" && ds[(d+1)%7]==="early") return true;
+        return false;
+      });
+      if(covered === slots.length && wd5 && noNE) break; // 完美解提前退出
+    }
+  }
+  if(!best){
+    toast("未能生成可行方案，请检查人数与需求是否匹配");
+    return;
+  }
+
+  // 写入
+  const w = {};
+  state.staff.forEach(n=>{ w[n] = ["rest","rest","rest","rest","rest","rest","rest"]; });
+  state.staff.forEach((n,si)=>{
+    best.assign[si].forEach(a=>{ w[n][a.day] = a.shift; });
+  });
+  state.schedule[k] = w;
+  save(); renderAll();
+  const filled = best.assign.reduce((s,a)=>s+a.length,0);
+  const msg = filled === slots.length
+    ? `✅ 排班完成：${filled} 个班次全覆盖，每人恰好休 2 天，晚班后不接早班，休息日错开不扎堆`
+    : `⚠️ 排班完成：覆盖 ${filled}/${slots.length} 个班次（人数不足，无法保证每人恰好休 2 天）`;
+  toast(msg + "，可点击格子微调");
+}
+
+function tryPlan(slots, N){
+  // assign[staffIdx] = [{day,shift}]
+  const assign = Array.from({length:N},()=>[]);
+  const workDays = new Array(N).fill(0);
+
+  // ===== 第一步：分配休息日 =====
+  // 规则：每人恰好休 2 天；同一人 2 个休息日不连续；
+  //      每天休息人数 = 总人数 - 当天班次需求（精确配额，保证每人恰好休 2 天时班次能全部排满）
+  const slotsPerDay = new Array(7).fill(0);
+  slots.forEach(s=>slotsPerDay[s.day]++);
+  let dayTarget = slotsPerDay.map(c=>N-c); // 每天期望休息人数
+  let tsum = dayTarget.reduce((a,b)=>a+b,0);
+  while(tsum > 2*N){ // 需求太少：总休息配额超过 2N，压缩到 2N（多余槽位由上层补足）
+    const i = dayTarget.indexOf(Math.max(...dayTarget));
+    if(dayTarget[i] <= 2) break;
+    dayTarget[i]--; tsum--;
+  }
+  while(tsum < 2*N){ // 需求太多：仍保证每人休 2 天，部分班次将缺人
+    const i = dayTarget.indexOf(Math.min(...dayTarget));
+    dayTarget[i]++; tsum++;
+  }
+  dayTarget = dayTarget.map(x=>Math.max(0,x));
+
+  const restDays = Array.from({length:N},()=>new Set());
+  const dayRest = new Array(7).fill(0);
+
+  for(const p of shuffle([...Array(N).keys()])){
+    let placed = 0, guard = 0;
+    while(placed < 2 && guard < 100){
+      guard++;
+      const relax = guard > 25; // 多次尝试后放宽"不连续"
+      const remain = dayTarget.map((t,d)=>t - dayRest[d]);
+      let cands = [];
+      for(let d=0; d<7; d++){
+        if(restDays[p].has(d)) continue;
+        if(remain[d] <= 0) continue; // 当天休息名额已满
+        if(!relax && (restDays[p].has((d+6)%7) || restDays[p].has((d+1)%7))) continue; // 休息日不连续
+        cands.push(d);
+      }
+      if(cands.length === 0){
+        if(relax) break; // 无法满足则此人可能多休，交由评分惩罚
+        for(let d=0; d<7; d++){
+          if(!restDays[p].has(d) && remain[d] > -1) cands.push(d); // 放宽连续性，尽量不超配额
+        }
+        if(cands.length === 0) break;
+      }
+      // 优先补当天缺口最大的日子，随机打散平手
+      cands.sort((a,b)=> (remain[b]-remain[a]) + (Math.random()-0.5));
+      const d = cands[0];
+      restDays[p].add(d); dayRest[d]++; placed++;
+    }
+  }
+
+  // ===== 第二步：填班次（只给非休息日排班，且遵守每人各班次周上限） =====
+  const LIM = (typeof state !== "undefined" && state.limits) ? state.limits : {early:99, mid:99, night:99};
+  const shiftCnt = Array.from({length:N},()=>({early:0, mid:0, night:0}));
+  const byDay = [[],[],[],[],[],[],[]];
+  slots.forEach(s=>byDay[s.day].push(s));
+  // 分层填班：先早班、再中班、最后晚班。
+  // 原因：「晚班次日不接早班」使早班候选受前一天晚班挤压，早班先填不受此限，
+  //      晚班最后填且候选容量最大（每人≤4），能主动避开次日已排早班的人。
+  const shiftOrder = ["early","mid","night"];
+  for(const sh of shiftOrder){
+    const dayOrder = shuffle([...Array(7).keys()]);
+    for(const day of dayOrder){
+      const daySlots = byDay[day].filter(s=>s.shift===sh);
+      for(const slot of daySlots){
+        const cands = [];
+        for(let i=0;i<N;i++){
+          if(restDays[i].has(day)) continue;            // 休息日不排班
+          if(assign[i].some(a=>a.day===day)) continue;  // 当天已有班
+          if(workDays[i] >= 5) continue;                // 每周最多上5天
+          if(shiftCnt[i][sh] >= (LIM[sh]||99)) continue; // 该班次周上限
+          // 晚班后一天不接早班（含周日晚班→下周一早班的跨周边界）
+          // 双向检查：早班看前一天是否有晚班，晚班看后一天是否已有早班
+          if(sh==="early" && assign[i].some(a=>a.day===(day+6)%7 && a.shift==="night")) continue;
+          if(sh==="night"  && assign[i].some(a=>a.day===(day+1)%7  && a.shift==="early")) continue;
+          cands.push(i);
+        }
+        if(cands.length===0) continue;
+        // 优先选：总工作量少 + 该班次已排少 的人（带随机扰动）
+        cands.sort((a,b)=> (workDays[a]*0.5 + shiftCnt[a][sh]*2 + Math.random()*1.5)
+                         - (workDays[b]*0.5 + shiftCnt[b][sh]*2 + Math.random()*1.5));
+        const pickIdx = cands[0];
+        assign[pickIdx].push({day, shift:sh});
+        workDays[pickIdx]++;
+        shiftCnt[pickIdx][sh]++;
+      }
+    }
+  }
+  // ===== 第三步：修复未排满的槽位（换班腾挪） =====
+  const canTake = (i, day, sh)=>{
+    if(restDays[i].has(day)) return false;
+    if(assign[i].some(a=>a.day===day)) return false;
+    if(workDays[i] >= 5) return false;
+    if(shiftCnt[i][sh] >= (LIM[sh]||99)) return false;
+    if(sh==="early" && assign[i].some(a=>a.day===(day+6)%7 && a.shift==="night")) return false;
+    if(sh==="night"  && assign[i].some(a=>a.day===(day+1)%7  && a.shift==="early")) return false;
+    return true;
+  };
+  const doAssign = (i, day, sh)=>{
+    assign[i].push({day, shift:sh});
+    workDays[i]++; shiftCnt[i][sh]++;
+  };
+  const doRemove = (i, day)=>{
+    const idx = assign[i].findIndex(a=>a.day===day);
+    if(idx>=0){ const sh = assign[i][idx].shift; assign[i].splice(idx,1); workDays[i]--; shiftCnt[i][sh]--; }
+  };
+  const needCnt = {}; // "day|shift" -> 需求槽位数
+  slots.forEach(s=>{ const k = s.day+"|"+s.shift; needCnt[k]=(needCnt[k]||0)+1; });
+  const haveCnt = {}; // "day|shift" -> 已排数
+  assign.forEach(a=>a.forEach(x=>{ const k=x.day+"|"+x.shift; haveCnt[k]=(haveCnt[k]||0)+1; }));
+
+  let repairing = true;
+  let guard = 0;
+  while(repairing && guard < 200){
+    guard++; repairing = false;
+    for(const key of shuffle(Object.keys(needCnt))){
+      const [d, sh] = key.split("|").map((v,i)=> i===0 ? +v : v);
+      while(haveCnt[key] < needCnt[key]){
+        let fixed = false;
+        // 策略1：直接找可排的空闲人选
+        for(const i of shuffle([...Array(N).keys()])){
+          if(canTake(i, d, sh)){ doAssign(i, d, sh); haveCnt[key]++; fixed = true; break; }
+        }
+        if(fixed){ repairing = true; continue; }
+        // 策略2：当天被其他班占用的人 → 把他那天的班换给别人接，再让他上这个班
+        for(const i of shuffle([...Array(N).keys()])){
+          const cur = assign[i].find(a=>a.day===d);
+          if(!cur || cur.shift===sh) continue;
+          const j = shuffle([...Array(N).keys()]).find(j=> j!==i && canTake(j, d, cur.shift));
+          if(j===undefined) continue;
+          const oldSh = cur.shift;
+          doRemove(i, d); doAssign(j, d, oldSh);
+          if(canTake(i, d, sh)){ doAssign(i, d, sh); haveCnt[key]++; fixed = true; break; }
+          // 换失败则回滚
+          doRemove(j, d); doAssign(i, d, oldSh);
+        }
+        if(fixed){ repairing = true; continue; }
+        // 策略3（早班缺人）：被前一天晚班挡住的人 → 把他的晚班挪给别人
+        if(sh==="early"){
+          for(const i of shuffle([...Array(N).keys()])){
+            const prevNight = assign[i].find(a=>a.day===(d+6)%7 && a.shift==="night");
+            if(!prevNight) continue;
+            const pd = (d+6)%7;
+            const j = shuffle([...Array(N).keys()]).find(j=> j!==i && canTake(j, pd, "night"));
+            if(j===undefined) continue;
+            doRemove(i, pd); doAssign(j, pd, "night");
+            if(canTake(i, d, "early")){ doAssign(i, d, "early"); haveCnt[key]++; fixed = true; break; }
+            doRemove(j, pd); doAssign(i, pd, "night");
+          }
+          if(fixed){ repairing = true; continue; }
+        }
+        // 策略4（晚班缺人）：被次日早班挡住的人 → 把他的早班挪给别人
+        if(sh==="night"){
+          for(const i of shuffle([...Array(N).keys()])){
+            const nextEarly = assign[i].find(a=>a.day===(d+1)%7 && a.shift==="early");
+            if(!nextEarly) continue;
+            const nd = (d+1)%7;
+            const j = shuffle([...Array(N).keys()]).find(j=> j!==i && canTake(j, nd, "early"));
+            if(j===undefined) continue;
+            doRemove(i, nd); doAssign(j, nd, "early");
+            if(canTake(i, d, "night")){ doAssign(i, d, "night"); haveCnt[key]++; fixed = true; break; }
+            doRemove(j, nd); doAssign(i, nd, "early");
+          }
+          if(fixed){ repairing = true; continue; }
+        }
+        // 策略5：缺口日休息人数超额 → 把某人的休息日挪到休息名额未满的日子，腾人来上班
+        if(dayRest[d] > (dayTarget[d]||0)){
+          for(const i of shuffle([...Array(N).keys()])){
+            if(!restDays[i].has(d)) continue;
+            for(const d2 of shuffle([...Array(7).keys()])){
+              if(d2===d || restDays[i].has(d2)) continue;
+              if(dayRest[d2] >= (dayTarget[d2]||0)) continue;
+              if(restDays[i].has((d2+6)%7) || restDays[i].has((d2+1)%7)) continue; // 保持休息日不连续
+              restDays[i].delete(d); dayRest[d]--;
+              restDays[i].add(d2); dayRest[d2]++;
+              if(canTake(i, d, sh)){ doAssign(i, d, sh); haveCnt[key]++; fixed = true; break; }
+              restDays[i].delete(d2); dayRest[d2]--; // 回滚
+              restDays[i].add(d); dayRest[d]++;
+            }
+            if(fixed) break;
+          }
+          if(fixed){ repairing = true; continue; }
+        }
+        break; // 该槽位无解，处理下一个缺口
+      }
+    }
+  }
+  return {assign, slots, restDays, dayRest};
+}
+
+function planScore(plan){
+  let filled = 0;
+  plan.assign.forEach(a=>{ filled += a.length; });
+  // 每人班次均衡度
+  const counts = plan.assign.map(a=>a.length);
+  const avg = counts.reduce((s,c)=>s+c,0)/counts.length;
+  const variance = counts.reduce((s,c)=>s+(c-avg)*(c-avg),0)/counts.length;
+  // 公平性：人与人之间早班/晚班分配的差异（不惩罚全局总量——上限约束下总量天然不等）
+  const eC = plan.assign.map(a=>a.filter(x=>x.shift==="early").length);
+  const nC = plan.assign.map(a=>a.filter(x=>x.shift==="night").length);
+  const fairVar = arr=>{const m=arr.reduce((s,c)=>s+c,0)/arr.length;return arr.reduce((s,c)=>s+(c-m)*(c-m),0)/arr.length;};
+  const shiftFair = fairVar(eC) + fairVar(nC);
+  // 休息日分布：每人休息日不连续 + 每天休息人数均衡
+  let adjPenalty = 0;
+  const dr = new Array(7).fill(0);
+  plan.restDays.forEach(set=>{
+    set.forEach(d=>dr[d]++);
+    const arr=[...set];
+    arr.forEach(d=>{ if(set.has((d+1)%7)) adjPenalty++; });
+  });
+  adjPenalty = adjPenalty/2;
+  const rAvg = dr.reduce((s,c)=>s+c,0)/7;
+  const rVar = dr.reduce((s,c)=>s+(c-rAvg)*(c-rAvg),0)/7;
+  // 班次上限违约惩罚（每人早班/晚班超上限）
+  const LIM = (typeof state !== "undefined" && state.limits) ? state.limits : {early:99, mid:99, night:99};
+  let overLimit = 0;
+  plan.assign.forEach(a=>{
+    const c = {early:0, mid:0, night:0};
+    a.forEach(x=>c[x.shift]++);
+    ["early","mid","night"].forEach(sh=>{
+      const lim = LIM[sh]||99;
+      if(c[sh] > lim) overLimit += c[sh]-lim;
+    });
+  });
+  // 晚班次日接早班惩罚（硬约束兜底：贪心个别排不下时仍应尽量避免）
+  let nightEarly = 0;
+  plan.assign.forEach(a=>{
+    a.forEach(x=>{
+      if(x.shift==="night" && a.some(y=>y.day===(x.day+1)%7 && y.shift==="early")) nightEarly++;
+    });
+  });
+  const fillRatio = plan.slots.length ? filled/plan.slots.length : 1;
+  const gaps = plan.slots.length - filled; // 未覆盖槽位数（硬性优先解决）
+  return fillRatio*100 - gaps*40 - variance*2 - shiftFair*3 - rVar*4 - adjPenalty*8 - overLimit*25 - nightEarly*30;
+}
+
+/* ---------- 复制上周 / 清空 ---------- */
+function clearWeek(){
+  if(!confirm("确定清空本周排班？")) return;
+  state.schedule[curKey()] = {};
+  ensureWeek(curKey());
+  save(); renderAll();
+}
+function copyPrevWeek(){
+  const prev = new Date(currentMonday); prev.setDate(prev.getDate()-7);
+  const pk = weekKeyOf(prev), pw = state.schedule[pk];
+  if(!pw){ toast("上周没有排班数据"); return; }
+  // 错开一天复制：让休息日轮换，更公平
+  const w = ensureWeek(curKey());
+  state.staff.forEach(n=>{
+    const src = pw[n];
+    if(!src){ return; }
+    // 向后错位1天：新周的第i天 = 上周第(i-1)天
+    w[n] = [src[6], src[0], src[1], src[2], src[3], src[4], src[5]];
+  });
+  save(); renderAll();
+  toast("已复制上周班表（整体错开一天，休息日轮换）");
+}
+
+/* ---------- 渲染 ---------- */
+function renderAll(){ renderStaff(); renderNeedsInfo(); renderTable(); renderStats(); }
+
+function renderStaff(){
+  const el = document.getElementById("staffList");
+  document.getElementById("staffCount").textContent = `共 ${state.staff.length} 人`;
+  if(state.staff.length===0){
+    el.innerHTML = '<div class="empty-tip" style="padding:14px">暂无人员，请先添加</div>';
+    return;
+  }
+  el.innerHTML = state.staff.map(n=>{
+    const first = n.slice(0,1);
+    return `<span class="staff-chip"><span class="avatar">${first}</span>${escapeHtml(n)}<button title="删除" onclick="removeStaff('${escapeAttr(n)}')">×</button></span>`;
+  }).join("");
+}
+function escapeHtml(s){ return s.replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+function escapeAttr(s){ return s.replace(/'/g,"\\'").replace(/"/g,"&quot;"); }
+
+function renderNeedsInfo(){
+  // 输入框与实际配置保持同步（表头可能按天微调过，此处显示周一/周六的基准值）
+  document.getElementById("needEarly").value = state.needs[0].early;
+  document.getElementById("needMid").value = state.needs[0].mid;
+  document.getElementById("needNight").value = state.needs[0].night;
+  document.getElementById("wkNeedEarly").value = state.needs[5].early;
+  document.getElementById("wkNeedMid").value = state.needs[5].mid;
+  document.getElementById("wkNeedNight").value = state.needs[5].night;
+  const daySum = d => (+d.early)+(+d.mid)+(+d.night);
+  const wd = daySum(state.needs[0]);   // 工作日
+  const wk = daySum(state.needs[5]);   // 周末
+  const total = state.needs.reduce((s,d)=>s+daySum(d),0);
+  document.getElementById("demandInfo").textContent = `每周总需求 ${total} 人次`;
+  document.getElementById("dailyTotal").textContent = wd;
+  document.getElementById("wkDailyTotal").textContent = wk;
+  const suggest = Math.ceil(total/5);
+  document.getElementById("suggestStaff").textContent = suggest + "（当前 " + state.staff.length + " 人）";
+}
+
+function renderTable(){
+  const k = curKey();
+  const week = ensureWeek(k);
+  const days = Array.from({length:7},(_,i)=>{
+    const d = new Date(currentMonday); d.setDate(d.getDate()+i);
+    return d;
+  });
+  const todayStr = fmt(new Date());
+
+  // 表头
+  let head = "<tr><th class='name-head'>姓名 \\ 日期</th>";
+  days.forEach((d,i)=>{
+    const isToday = fmt(d)===todayStr;
+    const nd = state.needs[i];
+    head += `<th class="day-head ${isToday?'today':''}">${DAY_NAMES[i]}<span style="font-weight:400;font-size:11px">${fmtCN(d)}${isToday?"（今天）":""}</span>
+      <span class="need">早<input type="number" min="0" value="${nd.early}" style="width:34px;padding:1px 3px;font-size:11px" onchange="setDayNeed(${i},'early',this.value)">
+      中<input type="number" min="0" value="${nd.mid}" style="width:34px;padding:1px 3px;font-size:11px" onchange="setDayNeed(${i},'mid',this.value)">
+      晚<input type="number" min="0" value="${nd.night}" style="width:34px;padding:1px 3px;font-size:11px" onchange="setDayNeed(${i},'night',this.value)"></span></th>`;
+  });
+  head += "<th>休息天数</th></tr>";
+  document.getElementById("tableHead").innerHTML = head;
+
+  // 表体
+  let body = "";
+  state.staff.forEach(n=>{
+    body += `<tr><td class="name-cell">${escapeHtml(n)}</td>`;
+    let restCnt = 0;
+    for(let i=0;i<7;i++){
+      const v = week[n][i] || "";
+      if(v==="rest") restCnt++;
+      // 冲突标记：晚班次日接早班（手动调整后可能出现，自动排班不会产生）
+      const prevNight = week[n][(i+6)%7]==="night";
+      const badAdj = v==="early" && prevNight;
+      body += `<td><div class="shift-cell ${v}" ${badAdj?'style="outline:2px solid #e5484d;outline-offset:-2px;border-radius:8px" title="⚠️ 前一天是晚班，次日不宜接早班"':''} onclick="openModal('${escapeAttr(n)}',${i})">${SHIFT_NAMES[v]}</div></td>`;
+    }
+    const restOk = restCnt===2;
+    body += `<td style="text-align:center;font-size:12px"><span class="${restOk?'badge-ok':(restCnt>2?'badge-off':'badge-warn')}">${restCnt} 天</span></td></tr>`;
+  });
+  if(state.staff.length===0){
+    body = `<tr><td colspan="9"><div class="empty-tip">请先在上方添加人员</div></td></tr>`;
+  }
+  document.getElementById("tableBody").innerHTML = body;
+
+  // 表脚：每天各班实际人数 vs 需求
+  const S = ["early","mid","night"];
+  const labels = {early:"早",mid:"中",night:"晚"};
+  let foot = "<tr><td class='name-cell' style='color:var(--text2);font-size:12px'>实际 / 需求</td>";
+  for(let i=0;i<7;i++){
+    const cnt = {early:0,mid:0,night:0};
+    state.staff.forEach(n=>{ const v=week[n][i]; if(cnt[v]!==undefined) cnt[v]++; });
+    const parts = S.map(sh=>{
+      const need = +state.needs[i][sh]||0;
+      return `<span class="${cnt[sh]>=need?'ok':'short'}" style="margin:0 3px;display:inline-block">${labels[sh]} ${cnt[sh]}/≥${need}</span>`;
+    });
+    foot += `<td>${parts.join("")}</td>`;
+  }
+  foot += "<td></td></tr>";
+  // 第二行：每天休息人数（检查是否扎堆）
+  foot += "<tr><td class='name-cell' style='color:var(--text2);font-size:12px'>当日休息人数</td>";
+  for(let i=0;i<7;i++){
+    const rc = state.staff.filter(n=>week[n][i]==="rest").length;
+    foot += `<td style="font-size:12px"><span class="${rc<=Math.ceil(state.staff.length*2/7)+1?'ok':'short'}">休 ${rc} 人</span></td>`;
+  }
+  foot += "<td></td></tr>";
+  document.getElementById("tableFoot").innerHTML = foot;
+
+  document.getElementById("weekLabel").textContent =
+    `${days[0].getFullYear()}年 ${fmtCN(days[0])} – ${fmtCN(days[6])}`;
+}
+
+function setDayNeed(day, shift, val){
+  state.needs[day][shift] = Math.max(0, +val||0);
+  save(); renderNeedsInfo(); renderTable(); renderStats();
+}
+
+function renderStats(){
+  const week = ensureWeek(curKey());
+  const grid = document.getElementById("statGrid");
+  const LIM = state.limits || {early:3,night:4,mid:99};
+  // 上限输入框与实际配置同步
+  const le = document.getElementById("limitEarly"), ln = document.getElementById("limitNight");
+  if(le) le.value = LIM.early; if(ln) ln.value = LIM.night;
+  if(state.staff.length===0){ grid.innerHTML = '<div class="empty-tip" style="grid-column:1/-1">暂无数据</div>'; return; }
+  grid.innerHTML = state.staff.map(n=>{
+    const arr = week[n];
+    const e = arr.filter(v=>v==="early").length;
+    const m = arr.filter(v=>v==="mid").length;
+    const ni = arr.filter(v=>v==="night").length;
+    const r = arr.filter(v=>v==="rest").length;
+    const planned = arr.filter(v=>v!=="").length;
+    const total = e+m+ni;
+    const pct = [e,m,ni].map(c=>total?Math.round(c/total*100):0);
+    const eOver = e > LIM.early, nOver = ni > LIM.night;
+    return `<div class="stat-card">
+      <div class="sname"><span>${escapeHtml(n)}</span>
+        ${r===2?'<span class="badge-ok">休2天 ✓</span>':(r>2?`<span class="badge-off">休${r}天</span>`:'<span class="badge-warn">休不足2天</span>')}
+      </div>
+      <div class="stat-bar">
+        ${e?`<div class="b1" style="width:${pct[0]}%"></div>`:""}
+        ${m?`<div class="b2" style="width:${pct[1]}%"></div>`:""}
+        ${ni?`<div class="b3" style="width:${pct[2]}%"></div>`:""}
+      </div>
+      <div class="stat-meta">
+        <span>早 <b style="${eOver?'color:var(--danger)':''}">${e}/${LIM.early}</b></span>
+        <span>中 <b>${m}</b></span>
+        <span>晚 <b style="${nOver?'color:var(--danger)':''}">${ni}/${LIM.night}</b></span>
+        <span>已排 <b>${planned}</b>/7</span>
+      </div>
+    </div>`;
+  }).join("");
+}
+
+/* ---------- 弹窗编辑 ---------- */
+let editTarget = null;
+function openModal(name, day){
+  editTarget = {name, day};
+  document.getElementById("modalTitle").textContent = `${name} · ${DAY_NAMES[day]} 班次`;
+  document.getElementById("modalMask").classList.add("show");
+}
+function closeModal(){ document.getElementById("modalMask").classList.remove("show"); editTarget=null; }
+function setCell(val){
+  if(!editTarget) return;
+  const week = ensureWeek(curKey());
+  week[editTarget.name][editTarget.day] = val;
+  save(); renderTable(); renderStats();
+  closeModal();
+}
+
+/* ---------- 周切换 ---------- */
+function changeWeek(dir){
+  currentMonday.setDate(currentMonday.getDate() + dir*7);
+  renderAll();
+}
+
+/* ---------- 导出 ---------- */
+function exportCSV(){
+  if(state.staff.length===0){ toast("暂无可导出的数据"); return; }
+  const k = curKey();
+  const week = ensureWeek(k);
+  const days = Array.from({length:7},(_,i)=>{ const d=new Date(currentMonday); d.setDate(d.getDate()+i); return fmtCN(d); });
+  const fullNames = {early:"早班",mid:"中班",night:"晚班",rest:"休息","":"未安排"};
+  let csv = "\uFEFF姓名," + DAY_NAMES.map((d,i)=>`${d}(${days[i]})`).join(",") + ",早班数,中班数,晚班数,休息数\n";
+  state.staff.forEach(n=>{
+    const arr = week[n];
+    const e=arr.filter(v=>v==="early").length, m=arr.filter(v=>v==="mid").length, ni=arr.filter(v=>v==="night").length, r=arr.filter(v=>v==="rest").length;
+    csv += [n, ...arr.map(v=>fullNames[v]), e, m, ni, r].join(",") + "\n";
+  });
+  const blob = new Blob([csv], {type:"text/csv;charset=utf-8"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `排班表_${k}.csv`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+  toast("已导出 CSV，可用 Excel / WPS 打开");
+}
+
+function shuffle(arr){
+  const a = arr.slice();
+  for(let i=a.length-1;i>0;i--){
+    const j = Math.floor(Math.random()*(i+1));
+    [a[i],a[j]]=[a[j],a[i]];
+  }
+  return a;
+}
+
+/* ---------- 初始化 ---------- */
+load();
+if(state.staff.length===0){
+  // 首次使用：按团队规模预置 32 人占位，可删除后用真实姓名批量添加
+  state.staff = Array.from({length:32},(_,i)=>`员工${String(i+1).padStart(2,"0")}`);
+}
+renderAll();
+</script>
+</body>
+</html>

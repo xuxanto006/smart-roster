@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>行政工作台 · 界面样张（组件骨架移植版）</title>
+<style>
+:root{
+  --paper:#f4f6fb; --surface:#fff;
+  --ink:#141b34; --muted:#6b7391; --faint:#8c93b0;
+  --line:#e4e8f2; --line-soft:#eef1f7;
+  --primary:#315efb; --primary-soft:#edf2ff; --primary-ink:#1b3fb8; --primary-line:#dce5ff;
+  --side:#141a33; --side-2:#1e2547; --side-3:#283160; --side-text:#98a1c6;
+  --spark:#e8894c;
+  --early:#f28b2b; --early-bg:#fff3e6; --early-ink:#c96f08;
+  --mid:#13c2c2; --mid-bg:#e6fffb; --mid-ink:#0d9c9c;
+  --night:#722ed1; --night-bg:#f9f0ff; --night-ink:#6a25c9;
+  --rest:#9ca3af; --rest-bg:#f4f5f7; --rest-ink:#7d8695;
+  --ok:#1d9e75; --ok-bg:#e6f6ef; --warn:#ba7517; --warn-bg:#fdf3e2; --bad:#c64c4c; --bad-bg:#fdeeee;
+  --r-lg:14px; --r-md:10px; --r-sm:9px;
+  --font:"PingFang SC","Microsoft YaHei",system-ui,-apple-system,sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:var(--font);background:var(--paper);color:var(--ink);font-size:13px;-webkit-font-smoothing:antialiased}
+.app{display:flex;min-height:100vh}
+
+/* ============ 侧边栏（骨架移植：深色 + 内嵌高亮条） ============ */
+.sidebar{width:236px;flex:0 0 236px;background:var(--side);color:#e8ecf8;display:flex;flex-direction:column;
+  height:100vh;position:sticky;top:0;padding:28px 18px 21px}
+.brand{display:flex;align-items:center;gap:10px;padding:0 8px 22px;margin-bottom:14px;border-bottom:1px solid #232a4d}
+.brand .logo{width:30px;height:30px;flex:0 0 30px;border-radius:9px;background:linear-gradient(140deg,var(--primary),#5b86ff);
+  display:grid;place-items:center;color:#fff;font-size:13px;font-weight:800}
+.brand b{display:block;font-size:14px;letter-spacing:-.01em}
+.brand small{display:block;color:#7d86ad;font-size:9px;letter-spacing:.14em;margin-top:3px}
+.sidebar nav{display:grid;gap:6px}
+.nav-item{color:var(--side-text);text-align:left;background:0 0;border:0;border-radius:var(--r-md);
+  align-items:center;gap:12px;width:100%;padding:11px 13px;display:flex;font-family:inherit;font-size:12.5px;cursor:pointer}
+.nav-item:hover{color:#fff;background:var(--side-2)}
+.nav-item.active{color:#fff;background:var(--side-2);box-shadow:inset 3px 0 var(--primary)}
+.nav-ico{width:16px;height:16px;flex:0 0 16px;border-radius:4px;background:#2b3566;display:grid;place-items:center}
+.nav-item.active .nav-ico{background:var(--primary)}
+.nav-item i{color:#1a2038;background:var(--spark);border-radius:10px;min-width:20px;height:20px;margin-left:auto;
+  padding:0 5px;font-size:10px;font-style:normal;font-weight:800;display:grid;place-items:center}
+.sidebar-foot{margin-top:auto;padding:14px 10px 0;border-top:1px solid #232a4d;color:#6d76a0;font-size:9.5px;line-height:1.7}
+
+/* ============ 内容区 ============ */
+main{flex:1;min-width:0;padding:26px 30px 40px}
+.topbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:29px}
+.topbar p{color:var(--muted);margin:0 0 4px;font-size:11px}
+.topbar h1{margin:0;font-size:20px;letter-spacing:-.02em}
+.top-actions{display:flex;align-items:center;gap:8px}
+.btn{font-family:inherit;font-size:11.5px;padding:9px 14px;border-radius:var(--r-sm);cursor:pointer;
+  border:1px solid var(--line);background:#fff;color:var(--ink)}
+.btn:hover{border-color:var(--primary-line);background:var(--primary-soft)}
+.btn-primary{background:var(--primary);border-color:var(--primary);color:#fff;font-weight:600}
+.btn-primary:hover{background:#2a51d8;color:#fff}
+.seg{display:flex;background:#fff;border:1px solid var(--line);border-radius:var(--r-sm);overflow:hidden}
+.seg button{font-family:inherit;font-size:11px;padding:8px 13px;border:0;background:transparent;color:var(--muted);cursor:pointer}
+.seg button.on{background:var(--primary);color:#fff;font-weight:600}
+
+.page-head h2{letter-spacing:-.03em;margin:7px 0 4px;font-size:27px}
+.page-head p{color:var(--muted);margin:0;font-size:12px}
+.screen{display:none}
+.screen.on{display:block}
+
+/* ============ 卡片 ============ */
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);padding:18px}
+.grid{display:grid;gap:14px}
+.g4{grid-template-columns:repeat(4,minmax(0,1fr))}
+.g3{grid-template-columns:repeat(3,minmax(0,1fr))}
+.g2{grid-template-columns:repeat(2,minmax(0,1fr))}
+.section-title{display:flex;align-items:center;justify-content:space-between;margin:26px 0 12px}
+.section-title b{font-size:14px;letter-spacing:-.01em}
+.section-title span{color:var(--faint);font-size:10.5px}
+
+.tile{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-md);padding:14px 16px}
+.tile small{display:block;color:var(--muted);font-size:10.5px;margin-bottom:7px}
+.tile b{font-size:24px;letter-spacing:-.02em;font-weight:600}
+.tile span{display:block;color:var(--faint);font-size:10px;margin-top:6px}
+
+/* 异常卡（骨架：左侧色条 + 标签） */
+.exc{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-md);padding:14px 16px;display:flex;gap:13px}
+.exc .bar{width:3px;flex:0 0 3px;border-radius:2px;background:var(--bad)}
+.exc.warn .bar{background:var(--warn)}
+.exc.ok .bar{background:var(--ok)}
+.exc b{display:block;font-size:12.5px;margin-bottom:5px}
+.exc p{color:var(--muted);font-size:11px;line-height:1.65}
+.tag{display:inline-flex;align-items:center;height:19px;padding:0 7px;border-radius:999px;font-size:9.5px;font-weight:700;margin-left:7px;vertical-align:1px}
+.tag-bad{background:var(--bad-bg);color:var(--bad)}
+.tag-warn{background:var(--warn-bg);color:var(--warn)}
+.tag-ok{background:var(--ok-bg);color:var(--ok)}
+.tag-pri{background:var(--primary-soft);color:var(--primary-ink)}
+
+/* ============ 资格网格（骨架：4列小卡） ============ */
+.qual{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.qual>div{border:1px solid var(--line);border-radius:var(--r-md);padding:11px;display:flex;align-items:center;gap:8px;background:#fff}
+.qual .av{width:26px;height:26px;flex:0 0 26px;border-radius:8px;background:var(--primary-soft);color:var(--primary-ink);
+  display:grid;place-items:center;font-size:11px;font-weight:700}
+.qual b{display:block;font-size:10.5px}
+.qual small{display:block;color:var(--muted);font-size:8.5px;margin-top:3px;max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.qual .st{margin-left:auto;font-size:9px;color:var(--faint)}
+
+/* ============ 排班表（骨架：卡片包裹 + 6px 需求微字） ============ */
+.table-card{border:1px solid var(--line);background:#fff;border-radius:var(--r-lg);overflow:auto}
+.schedule-table{border-collapse:collapse;width:100%;min-width:940px}
+.schedule-table th{color:#5b6486;text-align:left;background:#f3f5fb;padding:11px 16px;font-size:10px;font-weight:700;
+  position:sticky;top:0;white-space:nowrap}
+.schedule-table th.day{text-align:center}
+.schedule-table th>small{color:var(--faint);margin-top:3px;font-size:6px;font-weight:600;line-height:1.2;display:block;text-align:center}
+.schedule-table td{border-top:1px solid var(--line-soft);padding:9px 16px;font-size:11px;vertical-align:middle}
+.schedule-table td.day{text-align:center;padding:9px 6px}
+.schedule-table tbody tr:hover td{background:#fafbff}
+.name-cell{white-space:nowrap;font-weight:600}
+.name-cell small{color:var(--faint);font-weight:400;font-size:9.5px;margin-left:7px}
+.shift-cell{border-radius:var(--r-sm);padding:8px 2px;text-align:center;font-size:11.5px;font-weight:700;min-width:52px;
+  border:1px solid transparent;cursor:pointer}
+.shift-cell.early{background:var(--early-bg);color:var(--early-ink);border-color:#ffd8ae}
+.shift-cell.mid{background:var(--mid-bg);color:var(--mid-ink);border-color:#a8eae8}
+.shift-cell.night{background:var(--night-bg);color:var(--night-ink);border-color:#d9bcf5}
+.shift-cell.rest{background:var(--rest-bg);color:var(--rest-ink);border-color:#e5e7eb}
+.shift-cell.empty{background:#fff;border:1px dashed #d7dceb;color:#bcc3d4}
+.shift-cell .duty{display:block;font-size:8px;font-weight:600;opacity:.75;margin-top:2px}
+.shift-cell.hit{box-shadow:inset 0 0 0 1.5px var(--primary)}
+.shift-cell.bad{box-shadow:inset 0 0 0 1.5px var(--bad)}
+.off-cell{text-align:center;font-size:10.5px;color:var(--muted);font-variant-numeric:tabular-nums}
+.foot-row td{background:#fafbff;font-weight:600;font-size:10.5px;color:#4a5375}
+.foot-row .day{text-align:center}
+
+/* ============ 表单（骨架：2列 38px 输入） ============ */
+.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:15px}
+.form-grid label{display:grid;gap:6px;color:#5b6486;font-size:10px;font-weight:700}
+.form-grid input,.form-grid select{width:100%;height:38px;border:1px solid var(--line);border-radius:var(--r-sm);
+  background:#fff;padding:0 11px;font-family:inherit;font-size:11px;color:var(--ink);outline:none}
+.form-grid input:focus,.form-grid select:focus{border-color:var(--primary);box-shadow:0 0 0 3px rgba(49,94,251,.12)}
+.form-grid .full{grid-column:1/-1}
+.rangeline{display:flex;align-items:center;gap:8px}
+.rangeline input{width:74px}
+.rangeline em{color:var(--faint);font-style:normal;font-size:10px}
+
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:2px}
+.chip{font-family:inherit;font-size:10.5px;padding:5px 10px;border-radius:999px;border:1px solid var(--line);
+  background:#fff;color:var(--muted);cursor:pointer}
+.chip.on{background:var(--primary-soft);border-color:var(--primary-line);color:var(--primary-ink);font-weight:600}
+.hint{color:var(--faint);font-size:10px;margin-top:7px;line-height:1.7}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="logo">班</div>
+      <div><b>行政工作台</b><small>WORKFORCE PLANNER</small></div>
+    </div>
+    <nav>
+      <button class="nav-item active" data-s="dash"><span class="nav-ico"></span>工作台</button>
+      <button class="nav-item" data-s="people"><span class="nav-ico"></span>人员管理<i>46</i></button>
+      <button class="nav-item" data-s="org"><span class="nav-ico"></span>组织架构</button>
+      <button class="nav-item" data-s="rules"><span class="nav-ico"></span>规则中心</button>
+      <button class="nav-item" data-s="demand"><span class="nav-ico"></span>需求与请假<i>3</i></button>
+      <button class="nav-item" data-s="schedule"><span class="nav-ico"></span>排班中心</button>
+      <button class="nav-item" data-s="stats"><span class="nav-ico"></span>统计与导出</button>
+    </nav>
+    <div class="sidebar-foot">
+      数据保存在本机浏览器<br>未连接网络 · v2.4
+    </div>
+  </aside>
+
+  <main>
+    <div class="topbar">
+      <div>
+        <p>2026 年 10 月 5 日 · 本周排班</p>
+        <h1 id="pageTitle">工作台</h1>
+      </div>
+      <div class="top-actions">
+        <div class="seg"><button class="on">本周</button><button>整月</button></div>
+        <button class="btn">清空本周</button>
+        <button class="btn btn-primary">导出 Excel</button>
+      </div>
+    </div>
+
+    <!-- ============ 工作台 ============ -->
+    <section class="screen on" id="s-dash">
+      <div class="page-head">
+        <h2>本周排班，一眼看清</h2>
+        <p>先确认人员与规则，再生成班表。所有修改自动保存在本机。</p>
+      </div>
+
+      <div class="grid g4" style="margin-top:20px">
+        <div class="tile"><small>在职人员</small><b>46</b><span>5 个模块</span></div>
+        <div class="tile"><small>班表完成度</small><b>63%</b><span>203 / 322 格已安排</span></div>
+        <div class="tile"><small>规则冲突</small><b style="color:var(--bad)">1</b><span>另有 2 处提示</span></div>
+        <div class="tile"><small>已确认</small><b>12</b><span>本周待确认 34 人</span></div>
+      </div>
+
+      <div class="section-title"><b>需要处理</b><span>点击卡片可跳到冲突位置</span></div>
+      <div class="grid g3">
+        <div class="exc">
+          <div class="bar"></div>
+          <div>
+            <b>周三晚班缺 1 人 <span class="tag tag-bad">冲突</span></b>
+            <p>需 5 人，实排 4 人。已自动从「多出人力」补位失败，建议提高晚班需求上限或调整当日需求。</p>
+          </div>
+        </div>
+        <div class="exc warn">
+          <div class="bar"></div>
+          <div>
+            <b>刘舒晨 上一休一 <span class="tag tag-warn">提示</span></b>
+            <p>休息日为周二、周四，与「不能上一休一」冲突。两个休息日均由请假钉死，无法同时满足。</p>
+          </div>
+        </div>
+        <div class="exc ok">
+          <div class="bar"></div>
+          <div>
+            <b>开店 / 闭店覆盖 <span class="tag tag-ok">通过</span></b>
+            <p>本周 7 天开店 1 人、闭店 2 人均已落实到具备资格的顾问。</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="section-title"><b>开店 / 闭店资格人员</b><span>共 8 人 · 点击可管理</span></div>
+      <div class="qual">
+        <div><div class="av">刘</div><div><b>刘舒晨</b><small>3C顾问 · 开店闭店</small></div><div class="st">在职</div></div>
+        <div><div class="av">吴</div><div><b>吴心然</b><small>3C顾问 · 开店闭店</small></div><div class="st">在职</div></div>
+        <div><div class="av">张</div><div><b>张子柔</b><small>3C顾问 · 开店闭店</small></div><div class="st">在职</div></div>
+        <div><div class="av">陈</div><div><b>陈悦娴</b><small>3C顾问 · 开店闭店</small></div><div class="st">在职</div></div>
+        <div><div class="av">吴</div><div><b>吴洋洋</b><small>3C顾问 · 开店闭店</small></div><div class="st">在职</div></div>
+        <div><div class="av">刘</div><div><b>刘思含</b><small>3C顾问 · 开店闭店</small></div><div class="st">在职</div></div>
+        <div><div class="av">高</div><div><b>高超</b><small>3C顾问 · 开店闭店</small></div><div class="st">在职</div></div>
+        <div><div class="av">冯</div><div><b>冯楷</b><small>3C顾问 · 开店闭店</small></div><div class="st">在职</div></div>
+      </div>
+
+      <div class="section-title"><b>专家老师组</b><span>需连续在岗覆盖</span></div>
+      <div class="qual">
+        <div><div class="av">何</div><div><b>何广友</b><small>高级专家</small></div><div class="st">在职</div></div>
+        <div><div class="av">邓</div><div><b>邓臻蓝</b><small>中级专家</small></div><div class="st">在职</div></div>
+        <div><div class="av">孙</div><div><b>孙勇</b><small>高级专家</small></div><div class="st">在职</div></div>
+        <div><div class="av">王</div><div><b>王鹏俊</b><small>中级专家</small></div><div class="st">在职</div></div>
+      </div>
+    </section>
+
+    <!-- ============ 排班中心 ============ -->
+    <section class="screen" id="s-schedule">
+      <div class="page-head">
+        <h2>排班中心</h2>
+        <p>10 月 5 日 – 10 月 11 日 · 第 41 周 · 3C顾问</p>
+      </div>
+
+      <div class="top-actions" style="margin:16px 0 12px">
+        <div class="chips">
+          <button class="chip on">3C顾问</button>
+          <button class="chip">3C经理</button>
+          <button class="chip">车业务</button>
+          <button class="chip">售后</button>
+          <button class="chip">独立库管</button>
+        </div>
+        <div style="flex:1"></div>
+        <button class="btn">按请假 / 改班微调</button>
+        <button class="btn">确认排班</button>
+        <button class="btn btn-primary">一键智能排班</button>
+      </div>
+
+      <div class="table-card">
+        <table class="schedule-table">
+          <thead>
+            <tr>
+              <th>姓名 / 领域</th>
+              <th class="day">周一<small>10-05 早9 中1 晚5</small></th>
+              <th class="day">周二<small>10-06 早9 中1 晚5</small></th>
+              <th class="day">周三<small>10-07 早9 中1 晚5</small></th>
+              <th class="day">周四<small>10-08 早9 中1 晚5</small></th>
+              <th class="day">周五<small>10-09 早8 中2 晚6</small></th>
+              <th class="day">周六<small>10-10 早8 中2 晚6</small></th>
+              <th class="day">周日<small>10-11 早8 中2 晚6</small></th>
+              <th>已排Off</th>
+              <th>需求累计</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="name-cell">刘舒晨<small>3C顾问</small></td>
+              <td class="day"><div class="shift-cell early">早</div></td>
+              <td class="day"><div class="shift-cell rest">休</div></td>
+              <td class="day"><div class="shift-cell mid">中</div></td>
+              <td class="day"><div class="shift-cell night">晚<span class="duty">闭店</span></div></td>
+              <td class="day"><div class="shift-cell early">早<span class="duty">开店</span></div></td>
+              <td class="day"><div class="shift-cell night">晚</div></td>
+              <td class="day"><div class="shift-cell rest">休</div></td>
+              <td class="off-cell">2 / 2</td><td class="off-cell">0</td>
+            </tr>
+            <tr>
+              <td class="name-cell">吴心然<small>3C顾问</small></td>
+              <td class="day"><div class="shift-cell night">晚</div></td>
+              <td class="day"><div class="shift-cell early">早<span class="duty">开店</span></div></td>
+              <td class="day"><div class="shift-cell rest">休</div></td>
+              <td class="day"><div class="shift-cell mid">中</div></td>
+              <td class="day"><div class="shift-cell night">晚<span class="duty">闭店</span></div></td>
+              <td class="day"><div class="shift-cell early">早</div></td>
+              <td class="day"><div class="shift-cell rest">休</div></td>
+              <td class="off-cell">2 / 2</td><td class="off-cell">1</td>
+            </tr>
+            <tr>
+              <td class="name-cell">陈悦娴<small>3C顾问</small></td>
+              <td class="day"><div class="shift-cell mid">中</div></td>
+              <td class="day"><div class="shift-cell night">晚<span class="duty">闭店</span></div></td>
+              <td class="day"><div class="shift-cell early hit">早</div></td>
+              <td class="day"><div class="shift-cell rest">休</div></td>
+              <td class="day"><div class="shift-cell early">早<span class="duty">开店</span></div></td>
+              <td class="day"><div class="shift-cell rest">休</div></td>
+              <td class="day"><div class="shift-cell night">晚</div></td>
+              <td class="off-cell">2 / 2</td><td class="off-cell">0</td>
+            </tr>
+            <tr>
+              <td class="name-cell">高超<small>3C顾问</small></td>
+              <td class="day"><div class="shift-cell rest">休</div></td>
+              <td class="day"><div class="shift-cell early">早</div></td>
+              <td class="day"><div class="shift-cell night bad">晚<span class="duty">闭店</span></div></td>
+              <td class="day"><div class="shift-cell early">早</div></td>
+              <td class="day"><div class="shift-cell rest">休</div></td>
+              <td class="day"><div class="shift-cell night">晚</div></td>
+              <td class="day"><div class="shift-cell mid">中</div></td>
+              <td class="off-cell">2 / 2</td><td class="off-cell">2</td>
+            </tr>
+            <tr>
+              <td class="name-cell">张子柔<small>3C顾问</small></td>
+              <td class="day"><div class="shift-cell early">早</div></td>
+              <td class="day"><div class="shift-cell rest">休</div></td>
+              <td class="day"><div class="shift-cell early">早</div></td>
+              <td class="day"><div class="shift-cell night">晚</div></td>
+              <td class="day"><div class="shift-cell mid">中</div></td>
+              <td class="day"><div class="shift-cell rest">休</div></td>
+              <td class="day"><div class="shift-cell night">晚<span class="duty">闭店</span></div></td>
+              <td class="off-cell">2 / 2</td><td class="off-cell">0</td>
+            </tr>
+            <tr>
+              <td class="name-cell">何广友<small>专家老师</small></td>
+              <td class="day"><div class="shift-cell early">早</div></td>
+              <td class="day"><div class="shift-cell early">早</div></td>
+              <td class="day"><div class="shift-cell early">早</div></td>
+              <td class="day"><div class="shift-cell rest">休</div></td>
+              <td class="day"><div class="shift-cell mid">中</div></td>
+              <td class="day"><div class="shift-cell mid">中</div></td>
+              <td class="day"><div class="shift-cell rest">休</div></td>
+              <td class="off-cell">2 / 2</td><td class="off-cell">0</td>
+            </tr>
+            <tr>
+              <td class="name-cell">黎瑶<small>免排</small></td>
+              <td class="day"><div class="shift-cell empty">免</div></td>
+              <td class="day"><div class="shift-cell empty">免</div></td>
+              <td class="day"><div class="shift-cell empty">免</div></td>
+              <td class="day"><div class="shift-cell empty">免</div></td>
+              <td class="day"><div class="shift-cell empty">免</div></td>
+              <td class="day"><div class="shift-cell empty">免</div></td>
+              <td class="day"><div class="shift-cell empty">免</div></td>
+              <td class="off-cell">—</td><td class="off-cell">—</td>
+            </tr>
+            <tr class="foot-row">
+              <td>每日合计</td>
+              <td class="day">早 9<br>中 1 · 晚 5</td>
+              <td class="day">早 9<br>中 1 · 晚 5</td>
+              <td class="day">早 9<br>中 1 · <span style="color:var(--bad)">晚 4</span></td>
+              <td class="day">早 9<br>中 1 · 晚 5</td>
+              <td class="day">早 8<br>中 2 · 晚 6</td>
+              <td class="day">早 8<br>中 2 · 晚 6</td>
+              <td class="day">早 8<br>中 2 · 晚 6</td>
+              <td>休 6 人</td><td>需 3</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="hint">格子内上方为班次、下方小字为开店 / 闭店职责标记（不重复计入人数）。蓝框 = 由请假或特殊安排决定，红框 = 与安排冲突。</p>
+    </section>
+
+    <!-- ============ 人员管理 ============ -->
+    <section class="screen" id="s-people">
+      <div class="page-head">
+        <h2>人员管理</h2>
+        <p>主身份、子岗位 / 模块与能力标签</p>
+      </div>
+      <div class="card" style="margin-top:18px">
+        <div class="form-grid">
+          <label class="full">搜索人员<input placeholder="输入姓名 / 模块 / 岗位"></label>
+          <label>主身份<select><option>3C顾问</option><option>3C经理</option><option>汽车顾问</option><option>售后</option></select></label>
+          <label>子岗位 / 模块<select><option>全部</option><option>高级专家</option><option>尊界</option><option>鸿蒙卓越组</option></select></label>
+        </div>
+      </div>
+      <div class="section-title"><b>在职人员</b><span>46 人 · 免排 3 人 · 暂免 0 人</span></div>
+      <div class="qual">
+        <div><div class="av">吴</div><div><b>吴洋洋</b><small>3C顾问 · 开店闭店</small></div><div class="st">在职</div></div>
+        <div><div class="av">刘</div><div><b>刘思含</b><small>3C顾问 · 开店闭店</small></div><div class="st">在职</div></div>
+        <div><div class="av">冯</div><div><b>冯楷</b><small>3C顾问 · 开店闭店</small></div><div class="st">在职</div></div>
+        <div><div class="av">刘</div><div><b>刘科</b><small>3C顾问 · 值班经理</small></div><div class="st">在职</div></div>
+        <div><div class="av">周</div><div><b>周林奥</b><small>3C顾问 · 值班经理</small></div><div class="st">在职</div></div>
+        <div><div class="av">邓</div><div><b>邓臻蓝</b><small>3C顾问 · 中级专家</small></div><div class="st">在职</div></div>
+        <div><div class="av">孙</div><div><b>孙勇</b><small>3C顾问 · 高级专家</small></div><div class="st">在职</div></div>
+        <div><div class="av">王</div><div><b>王鹏俊</b><small>3C顾问 · 中级专家</small></div><div class="st">在职</div></div>
+      </div>
+    </section>
+
+    <!-- ============ 规则中心 ============ -->
+    <section class="screen" id="s-rules">
+      <div class="page-head">
+        <h2>规则中心</h2>
+        <p>分别配置周中、周末与节假日的班次人数上下限，修改后立即保存</p>
+      </div>
+
+      <div class="card" style="margin-top:18px">
+        <div class="section-title" style="margin:0 0 14px"><b>周中</b><span>周一至周四</span></div>
+        <div class="form-grid">
+          <label>早班人数<div class="rangeline"><input value="9"><em>最多</em><input value=""></div></label>
+          <label>中班人数<div class="rangeline"><input value="1"><em>最多</em><input value="3"></div></label>
+          <label>晚班人数<div class="rangeline"><input value="5"><em>最多</em><input value=""></div></label>
+          <label>开店 / 闭店<div class="rangeline"><input value="1"><em>/</em><input value="2"><em>人</em></div></label>
+          <label class="full">每人每周上限
+            <div class="chips">
+              <button class="chip">早班 ≤ 3</button><button class="chip on">晚班 ≤ 3</button>
+              <button class="chip on">每周休 2 天</button><button class="chip on">晚班次日不接早班</button>
+              <button class="chip on">早班次日不接晚班</button><button class="chip">周末连上早班 ≤ 1</button>
+            </div>
+          </label>
+        </div>
+        <p class="hint">「最多」留空表示不限制。早班人数包含开店人员，中班为中班1+中班2 合计，晚班包含闭店人员，职责不重复计数。</p>
+      </div>
+
+      <div class="card" style="margin-top:14px">
+        <div class="section-title" style="margin:0 0 14px"><b>周末 / 节假日</b><span>周六、周日及法定节假日</span></div>
+        <div class="form-grid">
+          <label>早班人数<div class="rangeline"><input value="8"><em>最多</em><input value=""></div></label>
+          <label>中班人数<div class="rangeline"><input value="2"><em>最多</em><input value="3"></div></label>
+          <label>晚班人数<div class="rangeline"><input value="6"><em>最多</em><input value=""></div></label>
+          <label>开店 / 闭店<div class="rangeline"><input value="1"><em>/</em><input value="2"><em>人</em></div></label>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 占位屏 ============ -->
+    <section class="screen" id="s-org">
+      <div class="page-head"><h2>组织架构</h2><p>主身份 → 子岗位 / 模块 → 能力标签</p></div>
+      <div class="card" style="margin-top:18px"><p class="hint">样张占位：树形组织编辑（主身份 / 子岗位 / 标签）。</p></div>
+    </section>
+    <section class="screen" id="s-demand">
+      <div class="page-head"><h2>需求与请假</h2><p>个人需求、模块需求、请假、培训、固定班与手动法休</p></div>
+      <div class="card" style="margin-top:18px"><p class="hint">样张占位：需求登记 + 中国官方日历（2026 法定节假日与调休补班日）。</p></div>
+    </section>
+    <section class="screen" id="s-stats">
+      <div class="page-head"><h2>统计与导出</h2><p>月度统计、人效与 Excel 导出</p></div>
+      <div class="grid g4" style="margin-top:18px">
+        <div class="tile"><small>本月人均班次</small><b>21.4</b><span>目标 22</span></div>
+        <div class="tile"><small>开店覆盖率</small><b>100%</b><span>7 / 7 天</span></div>
+        <div class="tile"><small>闭店覆盖率</small><b>100%</b><span>14 / 14 人次</span></div>
+        <div class="tile"><small>人均普通Off</small><b>7.0</b><span>应排 7 天</span></div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<script>
+const TITLES = {dash:"工作台",people:"人员管理",org:"组织架构",rules:"规则中心",
+                demand:"需求与请假",schedule:"排班中心",stats:"统计与导出"};
+document.querySelectorAll(".nav-item").forEach(b=>{
+  b.addEventListener("click",()=>{
+    document.querySelectorAll(".nav-item").forEach(x=>x.classList.remove("active"));
+    b.classList.add("active");
+    document.querySelectorAll(".screen").forEach(s=>s.classList.remove("on"));
+    document.getElementById("s-"+b.dataset.s).classList.add("on");
+    document.getElementById("pageTitle").textContent = TITLES[b.dataset.s];
+  });
+});
+document.querySelectorAll(".chips .chip").forEach(c=>{
+  c.addEventListener("click",()=>c.classList.toggle("on"));
+});
+document.querySelectorAll(".seg button").forEach(c=>{
+  c.addEventListener("click",()=>{
+    c.parentNode.querySelectorAll("button").forEach(x=>x.classList.remove("on"));
+    c.classList.add("on");
+  });
+});
+</script>
+</body>
+</html>

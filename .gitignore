@@ -27,3 +27,7 @@ out/
 # ===== IDE 个人配置 =====
 .vscode/settings.json
 .idea/
+
+# ===== 本地校验脚本的临时产物 =====
+tools/_build/
+tools/_tmp/

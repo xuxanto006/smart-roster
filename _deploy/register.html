@@ -1,0 +1,537 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#f5f5f7">
+<meta name="color-scheme" content="light dark">
+<title>注册 · 智能排班</title>
+<link rel="stylesheet" href="ui.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='24' fill='%231d1d1f'/><text x='50' y='66' font-size='46' font-family='system-ui' font-weight='700' text-anchor='middle' fill='%23fff'>SR</text></svg>">
+</head>
+<body>
+
+<main class="page">
+
+  <header class="brand-row">
+    <div class="logo">SR</div>
+    <div>
+      <h1>创建账号</h1>
+      <p>凭邀请码注册 · 提交后等待经理审核</p>
+    </div>
+  </header>
+
+  <section class="card auth" id="card" style="max-width:460px">
+
+    <div class="steps" id="steps">
+      <span class="sn on" id="sn1"><b>1</b>邀请码</span>
+      <span class="sp" id="sp1"><i></i></span>
+      <span class="sn" id="sn2"><b>2</b>设账号</span>
+    </div>
+
+    <!-- ============ 第 1 步 ============ -->
+    <div class="pane show" id="pane1">
+      <div class="form">
+        <div class="field" id="fInv">
+          <label for="inv">邀请码</label>
+          <div class="input-shell">
+            <input class="input" id="inv" type="text" maxlength="32" autocapitalize="characters"
+                   autocorrect="off" spellcheck="false" placeholder="向排班经理索取"
+                   style="text-transform:uppercase;letter-spacing:.08em">
+          </div>
+        </div>
+
+        <div class="field" id="fName">
+          <label for="name">你的姓名</label>
+          <div class="input-shell">
+            <input class="input" id="name" type="text" maxlength="40" autocomplete="off" placeholder="与员工名单一致，可留空">
+          </div>
+        </div>
+
+        <p class="hint">
+          姓名要和门店员工名单<b>完全一致</b>，否则审核时无法把账号绑到你身上；不确定可以留空，由经理指定。
+        </p>
+
+        <div class="msg" id="msg1" role="alert">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v5"/><path d="M12 16.5v.01"/></svg>
+          <span id="msgText1"></span>
+        </div>
+
+        <button class="btn primary block" id="next1" type="button">
+          <span class="spin"></span><span class="txt">下一步</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- ============ 第 2 步 ============ -->
+    <div class="pane" id="pane2">
+      <div class="form">
+        <div class="field" id="fUser">
+          <label for="user">账号名</label>
+          <div class="input-shell">
+            <input class="input" id="user" type="text" maxlength="20" autocomplete="username"
+                   autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="3–20 位字母、数字、下划线">
+          </div>
+        </div>
+
+        <div class="field" id="fPwd">
+          <label for="pwd">密码</label>
+          <div class="input-shell">
+            <input class="input has-tail" id="pwd" type="password" maxlength="72"
+                   autocomplete="new-password" placeholder="至少 8 位">
+            <div class="tail">
+              <button class="icon-btn" type="button" id="eye" aria-label="显示密码">
+                <svg viewBox="0 0 24 24"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="strength" id="strength">
+          <div class="bars" id="bars" data-s="0"><i></i><i></i><i></i><i></i></div>
+          <span id="strengthText">太弱</span>
+        </div>
+
+        <div class="field" id="fPwd2">
+          <label for="pwd2">确认密码</label>
+          <div class="input-shell">
+            <input class="input" id="pwd2" type="password" maxlength="72"
+                   autocomplete="new-password" placeholder="再输入一次">
+          </div>
+        </div>
+
+        <div class="captcha show" id="cap">
+          <div class="cap-qwrap">
+            <span class="cap-q" id="capQ">载入中…</span>
+            <svg class="ring" viewBox="0 0 30 30" id="capRing">
+              <circle class="bg" cx="15" cy="15" r="13"></circle>
+              <circle class="fg" cx="15" cy="15" r="13"></circle>
+            </svg>
+          </div>
+          <input class="cap-in" id="capA" inputmode="numeric" maxlength="3" placeholder="答案"
+                 autocomplete="off" aria-label="计算结果">
+          <button class="icon-btn" type="button" id="capNew" aria-label="换一题">
+            <svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v6h-6"/></svg>
+          </button>
+        </div>
+
+        <div class="field" id="fNote">
+          <label for="note">备注（选填）</label>
+          <div class="input-shell">
+            <input class="input" id="note" type="text" maxlength="200" placeholder="例如：新入职 / 转岗">
+          </div>
+        </div>
+
+        <div class="msg" id="msg2" role="alert">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v5"/><path d="M12 16.5v.01"/></svg>
+          <span id="msgText2"></span>
+        </div>
+
+        <button class="btn primary block" id="submit" type="button">
+          <span class="spin"></span><span class="txt">提交申请</span>
+        </button>
+        <button class="btn plain block" id="back" type="button">上一步</button>
+      </div>
+    </div>
+
+    <!-- 结果态 -->
+    <div class="state" id="state">
+      <div class="halo">
+        <svg viewBox="0 0 96 96">
+          <circle class="c" cx="48" cy="48" r="42"/>
+          <path class="p" d="M31 49.5l11.5 11.5L66 36.5"/>
+        </svg>
+      </div>
+      <h2 id="stTitle">申请已提交</h2>
+      <p id="stDesc"></p>
+      <div class="kv" id="stKv"></div>
+      <div class="acts" id="stActs"></div>
+    </div>
+
+  </section>
+
+  <div class="foot" id="foot">
+    <span class="dev">
+      <svg viewBox="0 0 24 24"><rect x="6" y="3" width="12" height="18" rx="2.5"/><path d="M10.5 18.5h3"/></svg>
+      <span id="devText">正在识别本机…</span>
+    </span>
+    <a href="login.html" id="footLogin">已有账号？直接登录</a>
+  </div>
+
+</main>
+
+<script src="auth-core.js"></script>
+<script>
+(function () {
+  'use strict';
+  var $ = SR.$;
+
+  var pane1 = $('#pane1'), pane2 = $('#pane2');
+  var sp1 = $('#sp1'), sn1 = $('#sn1'), sn2 = $('#sn2');
+  var inv = $('#inv'), nameEl = $('#name');
+  var userEl = $('#user'), pwd = $('#pwd'), pwd2 = $('#pwd2'), note = $('#note');
+  var fInv = $('#fInv'), fName = $('#fName'), fUser = $('#fUser'), fPwd = $('#fPwd'), fPwd2 = $('#fPwd2');
+  var capQ = $('#capQ'), capA = $('#capA'), capRing = $('#capRing');
+  var msg1 = $('#msg1'), msgText1 = $('#msgText1');
+  var msg2 = $('#msg2'), msgText2 = $('#msgText2');
+  var btnNext = $('#next1'), btnSubmit = $('#submit');
+
+  var S = { step: 1, capToken: '', capDead: false, stopRing: null, busy: false, inviteOk: '' };
+
+  (function devLabel() {
+    var id = SR.deviceId();
+    $('#devText').textContent = '本机标识 ' + id.slice(0, 4) + '…' + id.slice(-4) + ' · 首次登记';
+  })();
+
+  /* ---------------- 消息 ---------------- */
+  function setMsg(box, text, kind) {
+    var span = box === msg1 ? msgText1 : msgText2;
+    if (!text) { box.classList.remove('show', 'ok', 'info'); return; }
+    box.classList.remove('ok', 'info');
+    if (kind) box.classList.add(kind);
+    span.textContent = text;
+    box.classList.add('show');
+  }
+  function clearMsgs() { setMsg(msg1, ''); setMsg(msg2, ''); }
+
+  function badField(field) {
+    field.classList.add('is-bad');
+    SR.ui.shake(field);
+    var input = field.querySelector('input');
+    if (input) input.focus();
+  }
+
+  [inv, nameEl, userEl, pwd, pwd2, note, capA].forEach(function (el) {
+    el.addEventListener('input', function () {
+      var f = el.closest('.field');
+      if (f) f.classList.remove('is-bad');
+      /* 邀请码一改就不再是核验过的那个，必须重新走服务端校验 */
+      if (el === inv) S.inviteOk = '';
+      clearMsgs();
+    });
+  });
+
+  /* ---------------- 显示密码 ---------------- */
+  $('#eye').addEventListener('click', function () {
+    var on = pwd.type === 'password';
+    pwd.type = on ? 'text' : 'password';
+    pwd2.type = on ? 'text' : 'password';
+    this.innerHTML = on
+      ? '<svg viewBox="0 0 24 24"><path d="M3 3l18 18"/><path d="M10.6 5.2A9.9 9.9 0 0 1 12 5c6.4 0 10 7 10 7a17 17 0 0 1-3.2 4.1"/><path d="M6.6 6.8A16.7 16.7 0 0 0 2 12s3.6 7 10 7a9.8 9.8 0 0 0 4.3-1"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/></svg>'
+      : '<svg viewBox="0 0 24 24"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg>';
+    pwd.focus();
+  });
+
+  /* ---------------- 密码强度 ---------------- */
+  var bars = $('#bars'), strengthText = $('#strengthText'), strengthBox = $('#strength');
+  var LABELS = ['太弱', '偏弱', '一般', '较好', '很强'];
+
+  function score(p) {
+    if (!p) return 0;
+    var s = 0;
+    if (p.length >= 8) s++;
+    if (p.length >= 12) s++;
+    if (/[a-z]/.test(p) && /[A-Z]/.test(p)) s++;
+    if (/\d/.test(p) && /[^A-Za-z0-9]/.test(p)) s++;
+    if (p.length < 8) s = 1;
+    return Math.min(4, s);
+  }
+
+  pwd.addEventListener('input', function () {
+    var s = score(pwd.value);
+    if (!pwd.value) { strengthBox.classList.remove('show'); bars.setAttribute('data-s', '0'); return; }
+    strengthBox.classList.add('show');
+    bars.setAttribute('data-s', String(s));
+    strengthText.textContent = LABELS[s] || '';
+  });
+
+  /* ---------------- 步骤 ---------------- */
+  function goStep(n, back) {
+    if (S.step === n) return;
+    S.step = n;
+    var inPane = n === 1 ? pane1 : pane2;
+    var outPane = n === 1 ? pane2 : pane1;
+    outPane.classList.remove('show');
+    inPane.classList.add('show');
+
+    sp1.classList.toggle('done', n === 2);
+    sn1.classList.toggle('on', n === 1);
+    sn2.classList.toggle('on', n === 2);
+
+    clearMsgs();
+    if (n === 2) {
+      if (!S.capToken) refreshCaptcha();
+      setTimeout(function () { userEl.focus(); }, 220);
+    } else {
+      setTimeout(function () { inv.focus(); }, 220);
+    }
+    void back;
+  }
+
+  /* ---------------- 第 1 步：邀请码必须服务端核验通过才放行 ----------------
+     只做本地长度检查等于没校验（随便编一串都能进第 2 步）。
+     这里向 register 函数的 check_invite 动作确认：存在 / 未停用 / 在生效期 / 次数未用完。 */
+  btnNext.addEventListener('click', function () {
+    if (S.busy) return;
+
+    var code = inv.value.trim().toUpperCase();
+    if (code.length < 4 || code.length > 32) {
+      badField(fInv);
+      setMsg(msg1, '请输入正确的邀请码（4–32 位）');
+      return;
+    }
+    var nm = nameEl.value.trim();
+    if (nm && nm.length > 40) {
+      badField(fName);
+      setMsg(msg1, '姓名过长');
+      return;
+    }
+
+    S.busy = true;
+    SR.ui.setLoading(btnNext, true);
+    btnNext.querySelector('.txt').textContent = '正在核验…';
+
+    SR.api.checkInvite(code).then(function (res) {
+      var d = res.data || {};
+      SR.ui.setLoading(btnNext, false);
+      btnNext.querySelector('.txt').textContent = '下一步';
+      S.busy = false;
+
+      if (d.ok) {
+        S.inviteOk = d.invite || code;
+        goStep(2);
+        return;
+      }
+      badField(fInv);
+      /* 只把「邀请码本身不可用」的具体原因给用户看；其它（函数没部署好/服务器错误）统一提示 */
+      var inviteCodes = ['INVITE_INVALID', 'BAD_INVITE'];
+      setMsg(msg1, inviteCodes.indexOf(d.code) >= 0
+        ? (d.error || '邀请码不可用，请向排班经理确认')
+        : '邀请码核验服务暂时不可用，请稍后再试');
+    }).catch(function () {
+      SR.ui.setLoading(btnNext, false);
+      btnNext.querySelector('.txt').textContent = '下一步';
+      S.busy = false;
+      badField(fInv);
+      setMsg(msg1, '网络异常，请稍后重试');
+    });
+  });
+
+  $('#back').addEventListener('click', function () { goStep(1, true); });
+
+  [inv, nameEl].forEach(function (el) {
+    el.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); btnNext.click(); }
+    });
+  });
+
+  /* ---------------- 服务端验证码 ---------------- */
+  function refreshCaptcha() {
+    S.capDead = false;
+    capQ.textContent = '载入中…';
+    capA.value = '';
+    capRing.classList.remove('low', 'dead');
+    SR.api.captcha().then(function (res) {
+      var d = res.data || {};
+      if (!d.ok || !d.token) {
+        capQ.textContent = '验证码服务未就绪';
+        S.capDead = true;
+        setMsg(msg2, d.error || '验证码加载失败，请检查网络后重试');
+        return;
+      }
+      S.capToken = d.token;
+      capQ.textContent = d.question;
+      if (S.stopRing) S.stopRing();
+      S.stopRing = SR.ui.startRing(capRing, d.expires_in || 180, function () {
+        S.capDead = true;
+        capQ.textContent = '已过期';
+        setMsg(msg2, '验证码已过期，点右侧按钮换一题', 'info');
+      });
+    });
+  }
+
+  $('#capNew').addEventListener('click', function () {
+    if (S.stopRing) S.stopRing();
+    refreshCaptcha();
+  });
+
+  /* ---------------- 提交 ---------------- */
+  function submit() {
+    if (S.busy) return;
+
+    var username = userEl.value.trim().toLowerCase();
+    var pw = pwd.value;
+    var pw2 = pwd2.value;
+    var answer = capA.value.trim();
+
+    if (!/^[a-z0-9_]{3,20}$/.test(username)) {
+      badField(fUser);
+      setMsg(msg2, '账号名只能用英文字母、数字、下划线，长度 3–20 位');
+      return;
+    }
+    if (pw.length < 8) {
+      badField(fPwd);
+      setMsg(msg2, '密码至少 8 位');
+      return;
+    }
+    if (new TextEncoder().encode(pw).length > 72) {
+      badField(fPwd);
+      setMsg(msg2, '密码不能超过 72 字节（约 24 个汉字）');
+      return;
+    }
+    if (pw !== pw2) {
+      badField(fPwd2);
+      setMsg(msg2, '两次输入的密码不一致');
+      return;
+    }
+    if (!answer) {
+      SR.ui.shake($('#cap'));
+      setMsg(msg2, '请先完成算式验证');
+      capA.focus();
+      return;
+    }
+    if (!S.capToken || S.capDead) {
+      setMsg(msg2, '验证码已失效，点右侧按钮换一题', 'info');
+      refreshCaptcha();
+      return;
+    }
+
+    S.busy = true;
+    SR.ui.setLoading(btnSubmit, true);
+    btnSubmit.querySelector('.txt').textContent = '正在提交…';
+
+    SR.api.register({
+      username: username,
+      password: pw,
+      invite_code: S.inviteOk || inv.value.trim().toUpperCase(),
+      staff_name: nameEl.value.trim() || undefined,
+      apply_note: note.value.trim() || undefined,
+      captcha_token: S.capToken,
+      captcha_answer: answer
+    }).then(function (res) {
+      var d = res.data || {};
+      SR.ui.setLoading(btnSubmit, false);
+      btnSubmit.querySelector('.txt').textContent = '提交申请';
+      S.busy = false;
+
+      if (d.ok) return onSuccess(username);
+      onFail(d);
+    }).catch(function () {
+      SR.ui.setLoading(btnSubmit, false);
+      btnSubmit.querySelector('.txt').textContent = '提交申请';
+      S.busy = false;
+      setMsg(msg2, '网络异常，请稍后重试');
+    });
+  }
+
+  function onFail(d) {
+    var code = d.code || '';
+    var text = d.error || '提交失败，请稍后重试';
+
+    switch (code) {
+      case 'INVITE_INVALID':
+      case 'BAD_INVITE':
+        S.inviteOk = '';
+        setMsg(msg1, text);
+        goStep(1, true);
+        badField(fInv);
+        return;
+
+      case 'STAFF_NOT_FOUND':
+      case 'STAFF_TAKEN':
+        setMsg(msg1, text);
+        goStep(1, true);
+        badField(fName);
+        return;
+
+      case 'BAD_USERNAME':
+      case 'USERNAME_TAKEN':
+        badField(fUser);
+        setMsg(msg2, text);
+        return;
+
+      case 'BAD_PASSWORD':
+        badField(fPwd);
+        setMsg(msg2, text);
+        return;
+
+      case 'CAPTCHA_FAILED':
+        setMsg(msg2, text);
+        SR.ui.shake($('#cap'));
+        if (S.stopRing) S.stopRing();
+        refreshCaptcha();
+        return;
+
+      case 'OFFLINE':
+      case 'NETWORK':
+      case 'TIMEOUT':
+        setMsg(msg2, text);
+        return;
+
+      case 'SERVER_MISCONFIG':
+        return setMsg(msg2, '服务未就绪：Edge Function 缺少必要密钥，请联系管理员');
+
+      default:
+        setMsg(msg2, text);
+    }
+  }
+
+  function onSuccess(username) {
+    SR.session.setLastUser(username);
+
+    pane1.style.display = 'none';
+    pane2.style.display = 'none';
+    $('#steps').style.display = 'none';
+    $('#foot').style.display = 'none';
+
+    var st = $('#state');
+    st.className = 'state show warn';
+    $('#stTitle').textContent = '申请已提交，等待审核';
+    $('#stDesc').textContent = '排班经理通过后你就可以登录了。审核结果不用等通知，回登录页试一下即可。';
+
+    var kv = $('#stKv');
+    kv.innerHTML = '';
+    [
+      ['账号', username],
+      ['员工', nameEl.value.trim() || '（待经理指定）'],
+      ['状态', '待审核'],
+      ['邀请码', inv.value.trim().toUpperCase().slice(0, 4) + '****']
+    ].forEach(function (row) {
+      var dv = document.createElement('div');
+      var s = document.createElement('span');
+      var b = document.createElement('b');
+      s.textContent = row[0];
+      b.textContent = row[1];
+      dv.appendChild(s);
+      dv.appendChild(b);
+      kv.appendChild(dv);
+    });
+
+    var acts = $('#stActs');
+    acts.innerHTML = '';
+    var b1 = document.createElement('button');
+    b1.type = 'button';
+    b1.className = 'btn primary block';
+    b1.textContent = '去登录试试';
+    b1.addEventListener('click', function () { location.href = 'login.html'; });
+    var b2 = document.createElement('button');
+    b2.type = 'button';
+    b2.className = 'btn plain block';
+    b2.textContent = '再注册一个';
+    b2.addEventListener('click', function () { location.reload(); });
+    acts.appendChild(b1);
+    acts.appendChild(b2);
+  }
+
+  btnSubmit.addEventListener('click', submit);
+  [userEl, pwd, pwd2, note, capA].forEach(function (el) {
+    el.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); submit(); }
+    });
+  });
+
+  setTimeout(function () { inv.focus(); }, 350);
+})();
+</script>
+</body>
+</html>

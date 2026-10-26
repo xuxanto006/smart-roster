@@ -1,0 +1,810 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#f5f5f7">
+<meta name="color-scheme" content="light dark">
+<title>账号中心 · 智能排班</title>
+<link rel="stylesheet" href="ui.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='24' fill='%231d1d1f'/><text x='50' y='66' font-size='46' font-family='system-ui' font-weight='700' text-anchor='middle' fill='%23fff'>SR</text></svg>">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-in">
+    <div class="logo" style="width:28px;height:28px;border-radius:8px;font-size:11px">SR</div>
+    <b style="font-size:14px">账号中心</b>
+    <span class="sep"></span>
+    <span class="badge info" id="meBadge">…</span>
+    <a class="btn plain sm" href="index.html">工作台</a>
+    <button class="btn plain sm" id="logout" type="button">退出</button>
+  </div>
+</header>
+
+<main class="wrap" style="padding-top:26px;padding-bottom:60px">
+
+  <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:20px">
+    <h2 class="h2" style="flex:1 1 auto">账号与权限</h2>
+    <div class="seg" id="tabs">
+      <button type="button" data-tab="review" class="on">待审核 <span id="nReview"></span></button>
+      <button type="button" data-tab="invites">邀请码</button>
+      <button type="button" data-tab="accounts">账号</button>
+      <button type="button" data-tab="devices">设备</button>
+    </div>
+  </div>
+
+  <!-- ================= 审核 ================= -->
+  <section class="tabpane show" id="tab-review">
+    <div class="stats" id="rvStats"></div>
+    <p class="hint" style="margin:18px 0 0">
+      通过时请把账号绑到员工名单里的姓名上，否则该员工登录后看不到自己的班表。
+    </p>
+    <div id="rvList" style="margin-top:12px"><div class="skeleton">载入中…</div></div>
+  </section>
+
+  <!-- ================= 邀请码 ================= -->
+  <section class="tabpane" id="tab-invites">
+    <div class="card pad" style="margin-bottom:16px">
+      <h3 style="margin:0 0 14px;font-size:15px;font-weight:600">新建邀请码</h3>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px">
+        <div class="field">
+          <label for="ivMax">可用次数</label>
+          <input class="input" id="ivMax" type="number" min="1" max="500" value="1">
+        </div>
+        <div class="field">
+          <label for="ivStart">生效时间（空=立即）</label>
+          <input class="input" id="ivStart" type="datetime-local">
+        </div>
+        <div class="field">
+          <label for="ivEnd">失效时间（空=永久）</label>
+          <input class="input" id="ivEnd" type="datetime-local">
+        </div>
+        <div class="field">
+          <label for="ivNote">备注</label>
+          <input class="input" id="ivNote" maxlength="100" placeholder="例如 10 月新员工">
+        </div>
+      </div>
+      <div style="display:flex;gap:10px;align-items:center;margin-top:16px;flex-wrap:wrap">
+        <button class="btn primary" id="ivCreate" type="button">
+          <span class="spin"></span><span class="txt">生成邀请码</span>
+        </button>
+        <span class="hint" id="ivResult" style="margin:0"></span>
+      </div>
+    </div>
+    <div id="ivStats" class="stats" style="margin-bottom:16px"></div>
+    <div id="ivList"><div class="skeleton">载入中…</div></div>
+  </section>
+
+  <!-- ================= 账号 ================= -->
+  <section class="tabpane" id="tab-accounts">
+    <div class="stats" id="acStats"></div>
+    <div class="filters">
+      <input class="search" id="acSearch" placeholder="搜索账号名 / 姓名">
+      <select class="select" id="acStatus">
+        <option value="">全部状态</option>
+        <option value="active">在用</option>
+        <option value="disabled">已停用</option>
+        <option value="pending">待审核</option>
+        <option value="rejected">已拒绝</option>
+      </select>
+    </div>
+    <div id="acList"><div class="skeleton">载入中…</div></div>
+  </section>
+
+  <!-- ================= 设备 ================= -->
+  <section class="tabpane" id="tab-devices">
+    <p class="hint" style="margin:0 0 14px">
+      设备标识来自浏览器本机存储，<b>不是硬件指纹</b>；清缓存会变成一台「新设备」。它的用途是封掉已确认的设备并留痕。
+    </p>
+    <div class="stats" id="dvStats"></div>
+    <div class="filters">
+      <input class="search" id="dvSearch" placeholder="搜索设备标识 / 账号名">
+    </div>
+    <div id="dvList" style="margin-bottom:20px"><div class="skeleton">载入中…</div></div>
+    <h3 class="section-title" style="margin:0 0 10px">黑名单</h3>
+    <div id="dvBans"><div class="skeleton">载入中…</div></div>
+  </section>
+
+</main>
+
+<!-- 确认弹层 -->
+<div class="overlay" id="ov">
+  <div class="sheet">
+    <h3 id="ovTitle">确认操作</h3>
+    <p class="sub" id="ovDesc"></p>
+    <div class="field" id="ovField" style="display:none">
+      <label id="ovLabel" for="ovInput">原因</label>
+      <input class="input" id="ovInput" maxlength="100" placeholder="选填">
+    </div>
+    <div class="acts">
+      <div class="row-btns">
+        <button class="btn ghost block" id="ovNo" type="button">取消</button>
+        <button class="btn primary block" id="ovYes" type="button">确定</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="auth-core.js"></script>
+<script>
+(function () {
+  'use strict';
+  var $ = SR.$;
+
+  /* ================= 身份校验 ================= */
+  var session = SR.session.get();
+  if (!session || !session.access_token) {
+    location.replace('login.html');
+    return;
+  }
+  if (session.role !== 'manager') {
+    document.querySelector('main').innerHTML =
+      '<div class="card pad" style="max-width:460px;margin:40px auto;text-align:center">' +
+      '<h2 class="h2">没有访问权限</h2>' +
+      '<p class="sub" style="margin:8px 0 20px">账号中心只对排班经理开放。</p>' +
+      '<a class="btn primary block" href="index.html">返回工作台</a></div>';
+    return;
+  }
+
+  var TOKEN = session.access_token;
+  $('#meBadge').textContent = (session.display_name || session.username) + ' · 排班经理';
+
+  /* ================= 工具 ================= */
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+
+  function fmtTime(iso) {
+    if (!iso) return '—';
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return '—';
+    var now = Date.now();
+    var diff = now - d.getTime();
+    if (diff >= 0 && diff < 86400000) {
+      var h = Math.floor(diff / 3600000);
+      if (h < 1) return Math.max(1, Math.floor(diff / 60000)) + ' 分钟前';
+      return h + ' 小时前';
+    }
+    return d.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+  }
+
+  function shortHash(h) {
+    if (!h) return '—';
+    return h.length > 16 ? h.slice(0, 6) + '…' + h.slice(-6) : h;
+  }
+
+  function roleText(r) {
+    return r === 'manager' ? '排班经理' : (r === 'viewer' ? '只读' : '员工');
+  }
+
+  function statusBadge(s) {
+    if (s === 'active') return '<span class="badge ok">在用</span>';
+    if (s === 'pending') return '<span class="badge warn">待审核</span>';
+    if (s === 'disabled') return '<span class="badge bad">已停用</span>';
+    if (s === 'rejected') return '<span class="badge">已拒绝</span>';
+    return '<span class="badge">' + esc(s) + '</span>';
+  }
+
+  function inviteBadge(s) {
+    if (s === 'active') return '<span class="badge ok">可用</span>';
+    if (s === 'not_started') return '<span class="badge info">未生效</span>';
+    if (s === 'expired') return '<span class="badge">已过期</span>';
+    if (s === 'exhausted') return '<span class="badge warn">已用完</span>';
+    if (s === 'disabled') return '<span class="badge bad">已停用</span>';
+    return '<span class="badge">' + esc(s) + '</span>';
+  }
+
+  /* ================= 网络 ================= */
+  function api(fn, body) {
+    var payload = { token: TOKEN };
+    for (var k in body) if (Object.prototype.hasOwnProperty.call(body, k)) payload[k] = body[k];
+    return SR.api.call(fn, { method: 'POST', body: payload }).then(function (res) {
+      var d = res.data || {};
+      if (!d.ok) {
+        var c = d.code || '';
+        if (c === 'BAD_TOKEN' || c === 'NO_TOKEN' || c === 'DISABLED' || c === 'NO_PROFILE') {
+          SR.ui.toast(d.error || '登录已失效，请重新登录', 'bad');
+          SR.session.clear();
+          setTimeout(function () { location.replace('login.html'); }, 1200);
+        }
+        throw d;
+      }
+      return d;
+    });
+  }
+
+  function failToast(e) {
+    SR.ui.toast((e && (e.error || e.code)) || '操作失败，请重试', 'bad');
+  }
+
+  /* ================= 弹层 ================= */
+  var ov = $('#ov'), ovResolve = null;
+
+  function ask(opt) {
+    $('#ovTitle').textContent = opt.title || '确认操作';
+    $('#ovDesc').textContent = opt.desc || '';
+    $('#ovYes').textContent = opt.okText || '确定';
+    $('#ovYes').className = 'btn block ' + (opt.danger ? 'danger' : 'primary');
+    var field = $('#ovField');
+    if (opt.label) {
+      field.style.display = '';
+      $('#ovLabel').textContent = opt.label;
+      $('#ovInput').value = opt.value || '';
+      $('#ovInput').placeholder = opt.placeholder || '选填';
+    } else {
+      field.style.display = 'none';
+    }
+    ov.classList.add('show');
+    return new Promise(function (resolve) {
+      ovResolve = resolve;
+      setTimeout(function () {
+        if (opt.label) $('#ovInput').focus();
+        else $('#ovYes').focus();
+      }, 60);
+    });
+  }
+
+  function closeAsk(val) {
+    ov.classList.remove('show');
+    var r = ovResolve;
+    ovResolve = null;
+    if (r) r(val);
+  }
+
+  $('#ovNo').addEventListener('click', function () { closeAsk(null); });
+  $('#ovYes').addEventListener('click', function () {
+    var field = $('#ovField');
+    var val = field.style.display === 'none' ? '' : $('#ovInput').value.trim();
+    closeAsk({ ok: true, value: val });
+  });
+  ov.addEventListener('click', function (e) { if (e.target === ov) closeAsk(null); });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && ov.classList.contains('show')) closeAsk(null);
+    if (e.key === 'Enter' && ov.classList.contains('show') && $('#ovField').style.display !== 'none') {
+      e.preventDefault();
+      $('#ovYes').click();
+    }
+  });
+
+  /* ================= 页签 ================= */
+  var current = 'review';
+  var loaded = {};
+
+  $('#tabs').addEventListener('click', function (e) {
+    var b = e.target.closest('button[data-tab]');
+    if (!b) return;
+    var tab = b.getAttribute('data-tab');
+    if (tab === current) return;
+    current = tab;
+    SR.$$('#tabs button').forEach(function (x) { x.classList.toggle('on', x === b); });
+    ['review', 'invites', 'accounts', 'devices'].forEach(function (t) {
+      $('#tab-' + t).classList.toggle('show', t === tab);
+    });
+    reload(tab);
+  });
+
+  function reload(tab) {
+    if (tab === 'review') return loadReview();
+    if (tab === 'invites') return loadInvites();
+    if (tab === 'accounts') return loadAccounts();
+    if (tab === 'devices') return loadDevices();
+  }
+
+  /* ================= 审核 ================= */
+  var RV = { pending: [], staff: [], counts: {} };
+
+  function loadReview(silent) {
+    if (!silent) $('#rvList').innerHTML = '<div class="skeleton">载入中…</div>';
+    return api('review', { action: 'list' }).then(function (d) {
+      RV = d;
+      loaded.review = true;
+      $('#nReview').textContent = d.counts.pending ? String(d.counts.pending) : '';
+      $('#rvStats').innerHTML = [
+        ['待审核', d.counts.pending, d.counts.pending ? 'warn' : ''],
+        ['在用账号', d.counts.active, ''],
+        ['已停用', d.counts.disabled, ''],
+        ['已拒绝', d.counts.rejected, '']
+      ].map(function (x) {
+        return '<div class="stat"><div class="n">' + x[1] + '</div><div class="k">' + esc(x[0]) + '</div></div>';
+      }).join('');
+      renderReview();
+    }).catch(function (e) {
+      $('#rvList').innerHTML = '<div class="empty"><b>载入失败</b>' + esc(e.error || '请稍后重试') + '</div>';
+    });
+  }
+
+  function staffOptions(cur) {
+    var opts = ['<option value="">— 不绑定员工 —</option>'];
+    var taken = {};
+    (RV.staff || []).forEach(function (s) { if (s.taken_by) taken[s.name] = s.taken_by; });
+    (RV.staff || []).forEach(function (s) {
+      var by = taken[s.name];
+      var label = s.name + (s.position ? ' · ' + s.position : '') + (by ? '（已绑定 ' + by + '）' : '');
+      opts.push('<option value="' + esc(s.name) + '"' + (s.name === cur ? ' selected' : '') + (by && s.name !== cur ? ' disabled' : '') + '>' + esc(label) + '</option>');
+    });
+    return opts.join('');
+  }
+
+  function renderReview() {
+    var list = RV.pending || [];
+    if (!list.length) {
+      $('#rvList').innerHTML = '<div class="list"><div class="empty"><b>没有待审核的申请</b>有人注册后会出现在这里</div></div>';
+      return;
+    }
+    var html = '<div class="list">';
+    list.forEach(function (p) {
+      var warn = p.staff_taken_by
+        ? '<span class="badge bad">姓名已被 ' + esc(p.staff_taken_by) + ' 占用</span>'
+        : '';
+      html += '<div class="row" data-id="' + esc(p.id) + '">' +
+        '<div class="grow">' +
+          '<div class="name">' + esc(p.display_name || p.username) + ' ' +
+            '<span class="badge">' + esc(p.username) + '</span> ' + warn + '</div>' +
+          '<div class="meta">' +
+            '<span>提交 ' + esc(fmtTime(p.created_at)) + '</span>' +
+            '<span>申请姓名 ' + esc(p.staff_name || '未填') + '</span>' +
+            (p.apply_note ? '<span>备注 ' + esc(p.apply_note) + '</span>' : '') +
+          '</div>' +
+        '</div>' +
+        '<div class="actions">' +
+          '<select class="select" data-role>' +
+            '<option value="employee">员工</option>' +
+            '<option value="viewer">只读</option>' +
+            '<option value="manager">排班经理</option>' +
+          '</select>' +
+          '<select class="select" data-staff>' + staffOptions(p.staff_name || '') + '</select>' +
+          '<button class="btn primary sm" type="button" data-act="approve">通过</button>' +
+          '<button class="btn ghost sm" type="button" data-act="reject">拒绝</button>' +
+          '<button class="btn danger sm" type="button" data-act="purge">删除</button>' +
+        '</div>' +
+      '</div>';
+    });
+    html += '</div>';
+    $('#rvList').innerHTML = html;
+  }
+
+  $('#rvList').addEventListener('click', function (e) {
+    var b = e.target.closest('button[data-act]');
+    if (!b) return;
+    var row = b.closest('.row');
+    var id = row.getAttribute('data-id');
+    var act = b.getAttribute('data-act');
+    var role = row.querySelector('[data-role]').value;
+    var staff = row.querySelector('[data-staff]').value;
+
+    if (act === 'approve') {
+      if (role === 'employee' && !staff) {
+        SR.ui.toast('员工账号必须绑定员工姓名', 'bad');
+        row.querySelector('[data-staff]').focus();
+        return;
+      }
+      b.disabled = true;
+      api('review', { action: 'approve', id: id, role: role, staff_name: staff || undefined })
+        .then(function (d) {
+          SR.ui.toast('已通过：' + d.username, 'good');
+          loadReview(true);
+        })
+        .catch(function (err) { b.disabled = false; failToast(err); });
+      return;
+    }
+
+    if (act === 'reject') {
+      ask({ title: '拒绝这个申请？', desc: '对方登录时会看到「注册申请未通过」，之后仍可被删除。', label: '理由（会显示给对方）', danger: true, okText: '确认拒绝' })
+        .then(function (r) {
+          if (!r) return;
+          return api('review', { action: 'reject', id: id, reason: r.value }).then(function () {
+            SR.ui.toast('已拒绝', 'good');
+            loadReview(true);
+          }).catch(failToast);
+        });
+      return;
+    }
+
+    if (act === 'purge') {
+      ask({ title: '彻底删除这个账号？', desc: '会同时删除登录账号，账号名随即释放，可被重新注册。此操作不可撤销。', danger: true, okText: '删除' })
+        .then(function (r) {
+          if (!r) return;
+          return api('review', { action: 'purge', id: id }).then(function () {
+            SR.ui.toast('已删除', 'good');
+            loadReview(true);
+          }).catch(failToast);
+        });
+    }
+  });
+
+  /* ================= 邀请码 ================= */
+  function localToIso(v) {
+    if (!v) return undefined;
+    var d = new Date(v);
+    return isNaN(d.getTime()) ? undefined : d.toISOString();
+  }
+
+  $('#ivCreate').addEventListener('click', function () {
+    var btn = this;
+    var body = {
+      action: 'create',
+      max_uses: Number($('#ivMax').value || 1),
+      note: $('#ivNote').value.trim() || undefined,
+      starts_at: localToIso($('#ivStart').value),
+      ends_at: localToIso($('#ivEnd').value)
+    };
+    SR.ui.setLoading(btn, true);
+    btn.querySelector('.txt').textContent = '生成中…';
+    api('invites', body).then(function (d) {
+      SR.ui.setLoading(btn, false);
+      btn.querySelector('.txt').textContent = '生成邀请码';
+      $('#ivResult').innerHTML = '新码 <b style="font-family:var(--mono);letter-spacing:.08em">' + esc(d.invite.code) + '</b> · 可用 ' + d.invite.max_uses + ' 次';
+      SR.ui.toast('邀请码已生成', 'good');
+      $('#ivNote').value = '';
+      loadInvites(true);
+    }).catch(function (e) {
+      SR.ui.setLoading(btn, false);
+      btn.querySelector('.txt').textContent = '生成邀请码';
+      failToast(e);
+    });
+  });
+
+  function loadInvites(silent) {
+    if (!silent) $('#ivList').innerHTML = '<div class="skeleton">载入中…</div>';
+    return api('invites', { action: 'list' }).then(function (d) {
+      loaded.invites = true;
+      $('#ivStats').innerHTML = [
+        ['邀请码总数', d.stats.total],
+        ['当前可用', d.stats.active],
+        ['已使用人次', d.stats.used],
+        ['总名额', d.stats.capacity]
+      ].map(function (x) {
+        return '<div class="stat"><div class="n">' + x[1] + '</div><div class="k">' + esc(x[0]) + '</div></div>';
+      }).join('');
+
+      var codes = d.codes || [];
+      if (!codes.length) {
+        $('#ivList').innerHTML = '<div class="list"><div class="empty"><b>还没有邀请码</b>在上面生成第一个</div></div>';
+      } else {
+        var html = '<div class="list">';
+        codes.forEach(function (c) {
+          html += '<div class="row" data-code="' + esc(c.code) + '">' +
+            '<div class="grow">' +
+              '<div class="name" style="font-family:var(--mono);letter-spacing:.06em">' + esc(c.code) + ' ' + inviteBadge(c.status) + '</div>' +
+              '<div class="meta">' +
+                '<span>已用 ' + c.used_count + ' / ' + c.max_uses + '</span>' +
+                '<span>' + esc(fmtTime(c.starts_at)) + ' → ' + esc(c.ends_at ? fmtTime(c.ends_at) : '永久') + '</span>' +
+                (c.note ? '<span>' + esc(c.note) + '</span>' : '') +
+              '</div>' +
+            '</div>' +
+            '<div class="actions">' +
+              '<button class="btn ghost sm" type="button" data-act="toggle">' + (c.disabled ? '启用' : '停用') + '</button>' +
+              '<button class="btn danger sm" type="button" data-act="del">删除</button>' +
+            '</div>' +
+          '</div>';
+        });
+        html += '</div>';
+        $('#ivList').innerHTML = html;
+      }
+
+      var uses = d.uses || [];
+      if (uses.length) {
+        var u = '<h3 class="section-title" style="margin:18px 0 10px">最近使用</h3><div class="list">';
+        uses.forEach(function (x) {
+          u += '<div class="row"><div class="grow">' +
+            '<div class="name">' + esc(x.display_name || x.username || '（已删除的账号）') + '</div>' +
+            '<div class="meta"><span>' + esc(x.code) + '</span><span>' + esc(fmtTime(x.used_at)) + '</span></div>' +
+          '</div></div>';
+        });
+        u += '</div>';
+        $('#ivList').insertAdjacentHTML('beforeend', u);
+      }
+    }).catch(function (e) {
+      $('#ivList').innerHTML = '<div class="empty"><b>载入失败</b>' + esc(e.error || '请稍后重试') + '</div>';
+    });
+  }
+
+  $('#ivList').addEventListener('click', function (e) {
+    var b = e.target.closest('button[data-act]');
+    if (!b) return;
+    var row = b.closest('.row');
+    var code = row.getAttribute('data-code');
+    if (!code) return;
+    var act = b.getAttribute('data-act');
+    var isOff = b.textContent.trim() === '启用';
+
+    if (act === 'toggle') {
+      b.disabled = true;
+      api('invites', { action: 'update', code: code, disabled: !isOff }).then(function () {
+        SR.ui.toast(isOff ? '已启用' : '已停用', 'good');
+        loadInvites(true);
+      }).catch(function (err) { b.disabled = false; failToast(err); });
+      return;
+    }
+
+    if (act === 'del') {
+      ask({ title: '删除邀请码 ' + code + '？', desc: '只有从未被使用过的邀请码可以删除；用过的请改为停用。', danger: true, okText: '删除' })
+        .then(function (r) {
+          if (!r) return;
+          return api('invites', { action: 'delete', code: code }).then(function () {
+            SR.ui.toast('已删除', 'good');
+            loadInvites(true);
+          }).catch(failToast);
+        });
+    }
+  });
+
+  /* ================= 账号 ================= */
+  var AC = { accounts: [], counts: {} };
+
+  function loadAccounts(silent) {
+    if (!silent) $('#acList').innerHTML = '<div class="skeleton">载入中…</div>';
+    return api('offboard', { action: 'list' }).then(function (d) {
+      AC = d;
+      loaded.accounts = true;
+      $('#acStats').innerHTML = [
+        ['在用', d.counts.active],
+        ['已停用', d.counts.disabled],
+        ['待审核', d.counts.pending],
+        ['封禁设备', d.banned_devices]
+      ].map(function (x) {
+        return '<div class="stat"><div class="n">' + x[1] + '</div><div class="k">' + esc(x[0]) + '</div></div>';
+      }).join('');
+      renderAccounts();
+    }).catch(function (e) {
+      $('#acList').innerHTML = '<div class="empty"><b>载入失败</b>' + esc(e.error || '请稍后重试') + '</div>';
+    });
+  }
+
+  function renderAccounts() {
+    var q = $('#acSearch').value.trim().toLowerCase();
+    var st = $('#acStatus').value;
+    var list = (AC.accounts || []).filter(function (a) {
+      if (st && a.status !== st) return false;
+      if (!q) return true;
+      return String(a.username).toLowerCase().indexOf(q) >= 0 ||
+        String(a.display_name || '').toLowerCase().indexOf(q) >= 0 ||
+        String(a.staff_name || '').indexOf(q) >= 0;
+    });
+
+    if (!list.length) {
+      $('#acList').innerHTML = '<div class="list"><div class="empty"><b>没有匹配的账号</b>试试换个关键词或状态</div></div>';
+      return;
+    }
+
+    var html = '<div class="list">';
+    list.forEach(function (a) {
+      var acts = '';
+      if (a.status === 'disabled') {
+        acts += '<button class="btn tint sm" type="button" data-act="reactivate">重新启用</button>';
+      } else if (a.status === 'active' || a.status === 'rejected') {
+        acts += '<button class="btn danger sm" type="button" data-act="offboard">停用</button>';
+      }
+      if (a.status !== 'active' && a.role !== 'manager') {
+        acts += '<button class="btn ghost sm" type="button" data-act="purge">删除</button>';
+      }
+      html += '<div class="row" data-id="' + esc(a.id) + '">' +
+        '<div class="grow">' +
+          '<div class="name">' + esc(a.display_name || a.username) + ' ' +
+            '<span class="badge">' + esc(a.username) + '</span> ' +
+            statusBadge(a.status) +
+            (a.is_self ? ' <span class="badge info">你自己</span>' : '') +
+          '</div>' +
+          '<div class="meta">' +
+            '<span>' + esc(roleText(a.role)) + '</span>' +
+            '<span>员工 ' + esc(a.staff_name || '未绑定') + '</span>' +
+            '<span>设备 ' + a.device_total + '（在线 ' + a.device_live + '）</span>' +
+            '<span>最后登录 ' + esc(fmtTime(a.last_login_at)) + '</span>' +
+            (a.disabled_reason ? '<span>停用原因 ' + esc(a.disabled_reason) + '</span>' : '') +
+          '</div>' +
+        '</div>' +
+        '<div class="actions">' + acts + '</div>' +
+      '</div>';
+    });
+    html += '</div>';
+    $('#acList').innerHTML = html;
+  }
+
+  $('#acSearch').addEventListener('input', renderAccounts);
+  $('#acStatus').addEventListener('change', renderAccounts);
+
+  $('#acList').addEventListener('click', function (e) {
+    var b = e.target.closest('button[data-act]');
+    if (!b) return;
+    var row = b.closest('.row');
+    var id = row.getAttribute('data-id');
+    var act = b.getAttribute('data-act');
+
+    if (act === 'offboard') {
+      ask({ title: '停用并封禁这个账号？', desc: '会立即吊销数据库访问权限、封禁其当前全部设备，并禁止再次登录。账号数据保留，可随时重新启用。', label: '停用原因', value: '离职', danger: true, okText: '停用并封禁' })
+        .then(function (r) {
+          if (!r) return;
+          b.disabled = true;
+          return api('offboard', { action: 'offboard', id: id, reason: r.value }).then(function (d) {
+            SR.ui.toast('已停用，封禁设备 ' + (d.devices_banned || 0) + ' 台' + (d.auth_banned ? '' : '（Auth 封禁失败，请重试）'), d.auth_banned ? 'good' : 'bad');
+            loadAccounts(true);
+          }).catch(function (err) { b.disabled = false; failToast(err); });
+        });
+      return;
+    }
+
+    if (act === 'reactivate') {
+      ask({ title: '重新启用这个账号？', desc: '会解除登录封禁；设备黑名单默认保留（永久封禁），需要时可到「设备」页手动解封。', okText: '启用', danger: false })
+        .then(function (r) {
+          if (!r) return;
+          b.disabled = true;
+          return api('offboard', { action: 'reactivate', id: id }).then(function (d) {
+            SR.ui.toast('已启用' + (d.warning ? '：' + d.warning : ''), d.auth_unbanned ? 'good' : 'bad');
+            loadAccounts(true);
+          }).catch(function (err) { b.disabled = false; failToast(err); });
+        });
+      return;
+    }
+
+    if (act === 'purge') {
+      ask({ title: '彻底删除这个账号？', desc: '登录账号一并删除，账号名随即释放。此操作不可撤销。', danger: true, okText: '删除' })
+        .then(function (r) {
+          if (!r) return;
+          b.disabled = true;
+          return api('review', { action: 'purge', id: id }).then(function () {
+            SR.ui.toast('已删除', 'good');
+            loadAccounts(true);
+          }).catch(function (err) { b.disabled = false; failToast(err); });
+        });
+    }
+  });
+
+  /* ================= 设备 ================= */
+  var DV = { devices: [], bans: [], stats: {} };
+
+  function loadDevices(silent) {
+    if (!silent) $('#dvList').innerHTML = '<div class="skeleton">载入中…</div>';
+    return api('devices', { action: 'list' }).then(function (d) {
+      DV = d;
+      loaded.devices = true;
+      $('#dvStats').innerHTML = [
+        ['设备总数', d.stats.devices],
+        ['在线会话', d.stats.live],
+        ['当前封禁', d.stats.banned_live],
+        ['历史解封', d.stats.bans_lifted]
+      ].map(function (x) {
+        return '<div class="stat"><div class="n">' + x[1] + '</div><div class="k">' + esc(x[0]) + '</div></div>';
+      }).join('');
+      renderDevices();
+      renderBans();
+    }).catch(function (e) {
+      $('#dvList').innerHTML = '<div class="empty"><b>载入失败</b>' + esc(e.error || '请稍后重试') + '</div>';
+    });
+  }
+
+  function renderDevices() {
+    var q = $('#dvSearch').value.trim().toLowerCase();
+    var list = (DV.devices || []).filter(function (d) {
+      if (!q) return true;
+      return String(d.device_hash).toLowerCase().indexOf(q) >= 0 ||
+        String(d.username || '').toLowerCase().indexOf(q) >= 0 ||
+        String(d.display_name || '').toLowerCase().indexOf(q) >= 0;
+    });
+
+    if (!list.length) {
+      $('#dvList').innerHTML = '<div class="list"><div class="empty"><b>没有匹配的设备</b></div></div>';
+      return;
+    }
+
+    var html = '<div class="list">';
+    list.forEach(function (d) {
+      var badge = d.banned ? ' <span class="badge bad">已封禁</span>' : '';
+      badge += d.revoked_at ? ' <span class="badge">会话已吊销</span>' : ' <span class="badge ok">在线</span>';
+      html += '<div class="row" data-hash="' + esc(d.device_hash) + '">' +
+        '<div class="grow">' +
+          '<div class="name" style="font-family:var(--mono);font-size:13px">' + esc(shortHash(d.device_hash)) + badge + '</div>' +
+          '<div class="meta">' +
+            '<span>' + esc(d.display_name || d.username || '未知账号') + (d.username ? '（' + esc(d.username) + '）' : '') + '</span>' +
+            '<span>' + esc((d.ua || '未知设备').slice(0, 44)) + '</span>' +
+            '<span>最后活跃 ' + esc(fmtTime(d.last_seen)) + '</span>' +
+          '</div>' +
+        '</div>' +
+        '<div class="actions">' +
+          (d.banned
+            ? '<button class="btn tint sm" type="button" data-act="unban">解封</button>'
+            : '<button class="btn danger sm" type="button" data-act="ban">拉黑</button>') +
+          (d.revoked_at ? '' : '<button class="btn ghost sm" type="button" data-act="revoke">踢下线</button>') +
+        '</div>' +
+      '</div>';
+    });
+    html += '</div>';
+    $('#dvList').innerHTML = html;
+  }
+
+  function renderBans() {
+    var bans = DV.bans || [];
+    if (!bans.length) {
+      $('#dvBans').innerHTML = '<div class="list"><div class="empty"><b>黑名单是空的</b>没有设备被封禁</div></div>';
+      return;
+    }
+    var html = '<div class="list">';
+    bans.forEach(function (b) {
+      html += '<div class="row" data-hash="' + esc(b.device_hash) + '">' +
+        '<div class="grow">' +
+          '<div class="name" style="font-family:var(--mono);font-size:13px">' + esc(shortHash(b.device_hash)) +
+            (b.active ? ' <span class="badge bad">封禁中</span>' : ' <span class="badge ok">已解封</span>') + '</div>' +
+          '<div class="meta">' +
+            '<span>' + esc(b.username || '未知账号') + '</span>' +
+            '<span>' + esc(b.reason || '—') + '</span>' +
+            '<span>' + esc(fmtTime(b.banned_at)) + '</span>' +
+          '</div>' +
+        '</div>' +
+        '<div class="actions">' +
+          (b.active ? '<button class="btn tint sm" type="button" data-act="unban">解封</button>' : '') +
+        '</div>' +
+      '</div>';
+    });
+    html += '</div>';
+    $('#dvBans').innerHTML = html;
+  }
+
+  $('#dvSearch').addEventListener('input', renderDevices);
+
+  function deviceAction(e) {
+    var b = e.target.closest('button[data-act]');
+    if (!b) return;
+    var row = b.closest('.row');
+    var hash = row.getAttribute('data-hash');
+    var act = b.getAttribute('data-act');
+
+    if (act === 'ban') {
+      ask({ title: '拉黑这台设备？', desc: '该设备上所有账号都会被立即踢下线，且永久禁止登录，只能在这里手动解封。', label: '原因', value: '违规使用', danger: true, okText: '拉黑' })
+        .then(function (r) {
+          if (!r) return;
+          b.disabled = true;
+          return api('devices', { action: 'ban', device_hash: hash, reason: r.value }).then(function () {
+            SR.ui.toast('设备已拉黑', 'good');
+            loadDevices(true);
+          }).catch(function (err) { b.disabled = false; failToast(err); });
+        });
+      return;
+    }
+
+    if (act === 'unban') {
+      b.disabled = true;
+      api('devices', { action: 'unban', device_hash: hash }).then(function (d) {
+        SR.ui.toast(d.lifted ? '已解封，对方可重新登录' : d.note, d.lifted ? 'good' : undefined);
+        loadDevices(true);
+      }).catch(function (err) { b.disabled = false; failToast(err); });
+      return;
+    }
+
+    if (act === 'revoke') {
+      b.disabled = true;
+      api('devices', { action: 'revoke', device_hash: hash }).then(function () {
+        SR.ui.toast('已踢下线（未拉黑）', 'good');
+        loadDevices(true);
+      }).catch(function (err) { b.disabled = false; failToast(err); });
+    }
+  }
+
+  $('#dvList').addEventListener('click', deviceAction);
+  $('#dvBans').addEventListener('click', deviceAction);
+
+  /* ================= 退出 ================= */
+  $('#logout').addEventListener('click', function () {
+    ask({ title: '退出登录？', desc: '会清除本机保存的登录状态。', okText: '退出', danger: false })
+      .then(function (r) {
+        if (!r) return;
+        SR.session.clear();
+        location.replace('login.html');
+      });
+  });
+
+  /* ================= 启动 ================= */
+  loadReview();
+  loadInvites();
+
+  /* 每 60 秒静默刷新当前页，方便多人协作时看到新申请 */
+  setInterval(function () {
+    if (document.hidden) return;
+    if (current === 'review') loadReview(true);
+    else if (current === 'devices') loadDevices(true);
+  }, 60000);
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,451 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#f5f5f7">
+<meta name="color-scheme" content="light dark">
+<title>登录 · 智能排班</title>
+<link rel="stylesheet" href="ui.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='24' fill='%231d1d1f'/><text x='50' y='66' font-size='46' font-family='system-ui' font-weight='700' text-anchor='middle' fill='%23fff'>SR</text></svg>">
+</head>
+<body>
+
+<main class="page">
+
+  <header class="brand-row">
+    <div class="logo" id="mark">SR</div>
+    <div>
+      <h1>智能排班</h1>
+      <p>深圳卓悦中心 · 云端工作台</p>
+    </div>
+  </header>
+
+  <section class="card auth" id="card">
+
+    <h2 class="h2">登录</h2>
+    <p class="sub">使用账号名与密码进入工作台</p>
+
+    <form class="form" id="loginForm" novalidate autocomplete="on" style="margin-top:22px">
+
+      <div class="field" id="fU">
+        <label for="u">账号名</label>
+        <div class="input-shell">
+          <input class="input" id="u" name="username" type="text" autocomplete="username"
+                 autocapitalize="off" autocorrect="off" spellcheck="false" maxlength="20"
+                 placeholder="例如 zhangwei" required>
+        </div>
+      </div>
+
+      <div class="field" id="fP">
+        <label for="p">密码</label>
+        <div class="input-shell">
+          <input class="input has-tail" id="p" name="password" type="password"
+                 autocomplete="current-password" maxlength="72" placeholder="区分大小写" required>
+          <div class="tail">
+            <button class="icon-btn" type="button" id="eye" aria-label="显示密码">
+              <svg viewBox="0 0 24 24"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="hintbar" id="capHint"></div>
+
+      <p class="hint" style="margin:0 0 8px">人机验证 · 算出下面的结果才能登录；有效期很短，过期点右侧按钮换一题。</p>
+
+      <div class="captcha show" id="cap">
+        <div class="cap-qwrap">
+          <span class="cap-q" id="capQ">载入中…</span>
+          <svg class="ring" viewBox="0 0 30 30" id="capRing">
+            <circle class="bg" cx="15" cy="15" r="13"></circle>
+            <circle class="fg" cx="15" cy="15" r="13"></circle>
+          </svg>
+        </div>
+        <input class="cap-in" id="capA" inputmode="numeric" maxlength="3" placeholder="答案"
+               autocomplete="off" aria-label="计算结果">
+        <button class="icon-btn" type="button" id="capNew" aria-label="换一题">
+          <svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v6h-6"/></svg>
+        </button>
+      </div>
+
+      <div class="msg" id="msg" role="alert">
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v5"/><path d="M12 16.5v.01"/></svg>
+        <span id="msgText"></span>
+      </div>
+
+      <button class="btn primary block" id="submit" type="submit">
+        <span class="spin"></span><span class="txt">登录</span>
+      </button>
+
+    </form>
+
+    <!-- 结果态 -->
+    <div class="state" id="state">
+      <div class="halo">
+        <svg viewBox="0 0 96 96">
+          <circle class="c" cx="48" cy="48" r="42"/>
+          <path class="p" d="M31 49.5l11.5 11.5L66 36.5"/>
+        </svg>
+      </div>
+      <h2 id="stTitle">登录成功</h2>
+      <p id="stDesc"></p>
+      <div class="kv" id="stKv"></div>
+      <div class="acts" id="stActs"></div>
+    </div>
+
+  </section>
+
+  <div class="foot" id="foot">
+    <span class="dev">
+      <svg viewBox="0 0 24 24"><rect x="6" y="3" width="12" height="18" rx="2.5"/><path d="M10.5 18.5h3"/></svg>
+      <span id="devText">正在识别本机…</span>
+    </span>
+    <a href="register.html" id="footReg">没有账号？用邀请码注册</a>
+  </div>
+
+  <p class="legal" id="legal">
+    首次在新设备登录会自动登记该设备；账号停用后本设备也会被禁入。
+  </p>
+
+</main>
+
+<script src="auth-core.js"></script>
+<script>
+(function () {
+  'use strict';
+  var $ = SR.$;
+
+  var form = $('#loginForm');
+  var btn = $('#submit');
+  var msgBox = $('#msg');
+  var msgText = $('#msgText');
+  var fU = $('#fU'), fP = $('#fP');
+  var inpU = $('#u'), inpP = $('#p');
+  var cap = $('#cap'), capQ = $('#capQ'), capA = $('#capA'), capRing = $('#capRing');
+  var hint = $('#capHint');
+  var stateBox = $('#state');
+
+  /* capToken 由服务端签发（captcha 函数），答案不上传，只在登录时随 token 一起回传判卷 */
+  var CAP_TTL = 13; /* 算式有效期（秒）：题就在眼前，短窗口也够用，还能把 token 可复用时间压到最低 */
+  var S = { fails: 0, capToken: '', capDead: false, stopRing: null, busy: false };
+
+  /* ---------- 初始化 ---------- */
+  (function prefill() {
+    var sess = SR.session.get();
+    var last = (sess && sess.username) || SR.session.lastUser();
+    if (last) inpU.value = last;
+    if (sess && sess.role) {
+      hint.classList.add('show');
+      hint.innerHTML = '上次登录身份：<b>' + (sess.display_name || last) + '</b>' +
+        (sess.role === 'employee' ? '（员工）' : '（排班经理）') + '，直接输入密码即可继续';
+    }
+    setTimeout(function () {
+      (inpU.value ? inpP : inpU).focus();
+    }, 300);
+  })();
+
+  (function devLabel() {
+    var id = SR.deviceId();
+    $('#devText').textContent = '本机标识 ' + id.slice(0, 4) + '…' + id.slice(-4) + ' · 已登记';
+  })();
+
+  /* ---------- 显示 / 隐藏密码 ---------- */
+  $('#eye').addEventListener('click', function () {
+    var on = inpP.type === 'password';
+    inpP.type = on ? 'text' : 'password';
+    this.setAttribute('aria-label', on ? '隐藏密码' : '显示密码');
+    this.innerHTML = on
+      ? '<svg viewBox="0 0 24 24"><path d="M3 3l18 18"/><path d="M10.6 5.2A9.9 9.9 0 0 1 12 5c6.4 0 10 7 10 7a17 17 0 0 1-3.2 4.1"/><path d="M6.6 6.8A16.7 16.7 0 0 0 2 12s3.6 7 10 7a9.8 9.8 0 0 0 4.3-1"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/></svg>'
+      : '<svg viewBox="0 0 24 24"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg>';
+    inpP.focus();
+  });
+
+  /* ---------- 大写锁定提示 ---------- */
+  inpP.addEventListener('keyup', function (e) {
+    var on = false;
+    try { on = typeof e.getModifierState === 'function' && e.getModifierState('CapsLock'); } catch (err) {}
+    if (on) {
+      hint.classList.add('show');
+      hint.innerHTML = '<b>大写锁定已开启</b>，密码区分大小写';
+    } else {
+      hint.classList.remove('show');
+    }
+  });
+
+  /* ---------- 服务端算式（每次登录都要过） ---------- */
+  function refreshCaptcha() {
+    S.capDead = false;
+    S.capToken = '';
+    capQ.textContent = '载入中…';
+    capA.value = '';
+    capRing.classList.remove('low', 'dead');
+    SR.api.captcha(CAP_TTL).then(function (res) {
+      var d = res.data || {};
+      if (!d.ok || !d.token) {
+        capQ.textContent = '验证码服务未就绪';
+        S.capDead = true;
+        setMsg(d.error || '验证码加载失败，请检查网络后重试', 'info');
+        return;
+      }
+      S.capToken = d.token;
+      capQ.textContent = d.question;
+      if (S.stopRing) S.stopRing();
+      S.stopRing = SR.ui.startRing(capRing, d.expires_in || 180, function () {
+        S.capDead = true;
+        capQ.textContent = '已过期';
+        setMsg('验证码已过期，点右侧按钮换一题', 'info');
+      });
+    }).catch(function () {
+      capQ.textContent = '载入失败';
+      S.capDead = true;
+      setMsg('验证码加载失败，请检查网络后重试');
+    });
+  }
+
+  $('#capNew').addEventListener('click', function () {
+    if (S.stopRing) S.stopRing();
+    setMsg('');
+    refreshCaptcha();
+    capA.focus();
+  });
+
+  /* 切回页面时若算式已过期，顺手换一题；不做定时轮询，避免挂机一直打接口 */
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState === 'visible' && S.capDead && form.style.display !== 'none') {
+      refreshCaptcha();
+    }
+  });
+
+  refreshCaptcha();
+
+  /* ---------- 消息 ---------- */
+  function setMsg(text, kind) {
+    if (!text) { msgBox.classList.remove('show'); return; }
+    msgBox.classList.remove('ok', 'info');
+    if (kind) msgBox.classList.add(kind);
+    msgText.textContent = text;
+    msgBox.classList.add('show');
+  }
+
+  function badField(field) {
+    field.classList.add('is-bad');
+    SR.ui.shake(field);
+  }
+
+  [inpU, inpP].forEach(function (el) {
+    el.addEventListener('input', function () {
+      (el === inpU ? fU : fP).classList.remove('is-bad');
+      setMsg('');
+    });
+  });
+
+  /* ---------- 提交 ---------- */
+  form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    if (S.busy) return;
+
+    var username = inpU.value.trim().toLowerCase();
+    var password = inpP.value;
+
+    if (!/^[a-z0-9_]{3,20}$/.test(username)) {
+      badField(fU);
+      setMsg('账号名只能用英文字母、数字、下划线，长度 3–20 位');
+      inpU.focus();
+      return;
+    }
+    if (!password) {
+      badField(fP);
+      setMsg('请输入密码');
+      inpP.focus();
+      return;
+    }
+    var answer = capA.value.trim();
+    if (!answer) {
+      SR.ui.shake(cap);
+      setMsg('请先算出旁边的算式结果');
+      capA.focus();
+      return;
+    }
+    if (!S.capToken || S.capDead) {
+      setMsg('验证码已失效，已为你换一题', 'info');
+      refreshCaptcha();
+      return;
+    }
+
+    S.busy = true;
+    SR.ui.setLoading(btn, true);
+    btn.querySelector('.txt').textContent = '正在验证…';
+    setMsg('');
+
+    SR.api.login({
+      username: username,
+      password: password,
+      device_id: SR.deviceId(),
+      ua: SR.ua(),
+      captcha_token: S.capToken,
+      captcha_answer: answer
+    }).then(function (res) {
+      var d = res.data || {};
+      SR.ui.setLoading(btn, false);
+      btn.querySelector('.txt').textContent = '登录';
+      S.busy = false;
+
+      if (d.ok) return onSuccess(res, username);
+      onFail(d);
+    }).catch(function () {
+      SR.ui.setLoading(btn, false);
+      btn.querySelector('.txt').textContent = '登录';
+      S.busy = false;
+      setMsg('网络异常，请稍后重试');
+    });
+  });
+
+  function onFail(d) {
+    var reason = d.reason || d.code || '';
+    var message = d.message || d.error || '登录失败';
+
+    switch (reason) {
+      case 'PENDING_APPROVAL':
+        return showState('warn', '账号待审核', '排班经理通过后即可登录。', [
+          ['账号', inpU.value.trim().toLowerCase()],
+          ['当前状态', '待审核']
+        ], [
+          { label: '我已通过审核，重新登录', primary: true, onclick: resetToForm },
+          { label: '返回', ghost: true, onclick: resetToForm }
+        ]);
+
+      case 'DISABLED':
+        return showState('bad', '账号已停用', '停用后账号与已发布班表均不可访问，如需恢复请联系排班经理。', [
+          ['账号', inpU.value.trim().toLowerCase()]
+        ], [{ label: '返回', ghost: true, onclick: resetToForm }]);
+
+      case 'REJECTED':
+        return showState('bad', '申请未通过', message, [
+          ['账号', inpU.value.trim().toLowerCase()]
+        ], [{ label: '返回', ghost: true, onclick: resetToForm }]);
+
+      case 'DEVICE_BANNED':
+        return showState('bad', '此设备已被封禁', '这台设备已被禁止登录，请联系排班经理解封。', [
+          ['设备标识', SR.deviceId().slice(0, 6) + '…' + SR.deviceId().slice(-4)]
+        ], [{ label: '返回', ghost: true, onclick: resetToForm }]);
+
+      case 'TOO_MANY_FAILS':
+        setMsg(message || '密码错误次数太多，请 15 分钟后再试');
+        return SR.ui.toast('已触发登录保护', 'bad');
+
+      case 'CAPTCHA_REQUIRED':
+      case 'CAPTCHA_FAILED':
+        SR.ui.shake(cap);
+        setMsg(message || '算式结果不对，请重新计算');
+        refreshCaptcha();
+        capA.focus();
+        return;
+
+      case 'NO_SUCH_USER':
+      case 'BAD_CREDENTIALS':
+        S.fails += 1;
+        setMsg(message || '账号或密码不对');
+        badField(fP);
+        refreshCaptcha();
+        capA.focus();
+        return;
+
+      case 'BAD_DEVICE':
+        return setMsg('设备标识异常，请刷新页面后重试');
+
+      case 'OFFLINE':
+      case 'NETWORK':
+      case 'TIMEOUT':
+        setMsg(message);
+        return SR.ui.toast('网络不可用', 'bad');
+
+      case 'SERVER_MISCONFIG':
+        return setMsg('服务未就绪，请联系管理员（缺少服务端密钥）');
+
+      default:
+        setMsg(message || '登录失败，请稍后重试');
+    }
+  }
+
+  function onSuccess(res, username) {
+    if (S.stopRing) S.stopRing();
+    var sess = SR.session.from(res, username);
+    SR.session.save(sess);
+    SR.session.setLastUser(username);
+
+    var isManager = sess.role === 'manager' || sess.role === 'viewer';
+    var roleText = sess.role === 'manager' ? '排班经理'
+      : (sess.role === 'viewer' ? '只读查看' : '员工');
+
+    showState('ok', '欢迎回来，' + (sess.display_name || username), '', [
+      ['账号', sess.username],
+      ['身份', roleText],
+      ['本机', SR.deviceId().slice(0, 6) + '…' + SR.deviceId().slice(-4)],
+      ['会话有效', Math.round((sess.expires_in || 3600) / 60) + ' 分钟']
+    ], isManager
+      ? [
+          { label: '进入账号中心', primary: true, onclick: function () { location.href = 'view-account.html'; } },
+          { label: '进入排班工作台', ghost: true, onclick: function () { location.href = 'index.html'; } }
+        ]
+      : [
+          { label: '我的班表（建设中）', ghost: true, disabled: true },
+          { label: '返回登录页', ghost: true, onclick: resetToForm }
+        ], isManager ? '' : '员工端「我的班表」页面还在开发中。上线后这里会显示你本周 / 下周 / 历史班表，并可以点「已知晓」回执。');
+  }
+
+  /* ---------- 结果态 ---------- */
+  function showState(kind, title, desc, kv, actions, extraDesc) {
+    form.style.display = 'none';
+    $('#foot').style.display = 'none';
+    $('#legal').style.display = 'none';
+    stateBox.className = 'state show' + (kind === 'bad' ? ' bad' : (kind === 'warn' ? ' warn' : ''));
+    $('#stTitle').textContent = title;
+    $('#stDesc').textContent = extraDesc || desc || '';
+
+    var kvBox = $('#stKv');
+    kvBox.innerHTML = '';
+    if (kv && kv.length) {
+      kv.forEach(function (row) {
+        var d = document.createElement('div');
+        var s = document.createElement('span');
+        var b = document.createElement('b');
+        s.textContent = row[0];
+        b.textContent = row[1];
+        d.appendChild(s);
+        d.appendChild(b);
+        kvBox.appendChild(d);
+      });
+      kvBox.style.display = '';
+    } else {
+      kvBox.style.display = 'none';
+    }
+
+    var acts = $('#stActs');
+    acts.innerHTML = '';
+    (actions || []).forEach(function (a) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'btn block ' + (a.primary ? 'primary' : 'ghost');
+      b.textContent = a.label;
+      if (a.disabled) b.disabled = true;
+      if (a.onclick) b.addEventListener('click', a.onclick);
+      acts.appendChild(b);
+    });
+  }
+
+  function resetToForm() {
+    stateBox.className = 'state';
+    form.style.display = '';
+    $('#foot').style.display = '';
+    $('#legal').style.display = '';
+    setMsg('');
+    inpP.value = '';
+    capA.value = '';
+    refreshCaptcha();
+    inpP.focus();
+  }
+})();
+</script>
+</body>
+</html>

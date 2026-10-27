@@ -7,6 +7,23 @@
 <meta name="color-scheme" content="light dark">
 <title>登录 · 智能排班</title>
 <link rel="stylesheet" href="ui.css">
+<style>
+  /* 开发快捷登录：只在本机 / ?dev=1 时出现，样式沿用设计系统 */
+  .quick { margin-top: 20px; padding-top: 16px; border-top: 1px dashed var(--line); }
+  .quick-head {
+    display: flex; align-items: center; justify-content: space-between;
+    font-size: 12.5px; font-weight: 600; color: var(--text-2); letter-spacing: .02em;
+  }
+  .quick-acts { display: flex; gap: 8px; margin-top: 10px; }
+  .quick-acts .btn { flex: 1; height: 40px; font-size: 14px; }
+  .quick-form { margin-top: 12px; display: flex; flex-direction: column; gap: 10px; }
+  .quick-form .input { height: 40px; }
+  .quick-form .select { height: 40px; padding: 0 12px; }
+  .quick-form .field > label { font-size: 12px; }
+  .quick-head-acts { display: flex; gap: 8px; }
+  /* 关键：.quick-form 有 display:flex，会盖掉 UA 的 [hidden]{display:none}，这里补回来 */
+  .quick [hidden] { display: none !important; }
+</style>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='24' fill='%231d1d1f'/><text x='50' y='66' font-size='46' font-family='system-ui' font-weight='700' text-anchor='middle' fill='%23fff'>SR</text></svg>">
 </head>
 <body>
@@ -79,6 +96,50 @@
       </button>
 
     </form>
+
+    <!-- 开发快捷登录：默认隐藏，JS 判定后才显示（不靠 JS 也守着）。
+         开发期默认可见；点「不再显示」或地址带 ?dev=0 即隐藏，
+         账号密码不写进代码库，只存在本机 localStorage。 -->
+    <div class="quick" id="quick" hidden>
+      <div class="quick-head">
+        <span>开发快捷登录</span>
+        <div class="quick-head-acts">
+          <button class="btn plain sm" id="quickCfg" type="button">设置账号</button>
+          <button class="btn plain sm" id="quickOff" type="button">不再显示</button>
+        </div>
+      </div>
+      <p class="hint" style="margin:6px 0 0">点一下直接进，不用输账号密码，也不用算验证码。凭据只存在本机浏览器，不写进仓库。</p>
+      <div class="quick-acts">
+        <button class="btn ghost" id="quickMgr" type="button">管理员身份</button>
+        <button class="btn ghost" id="quickEmp" type="button">普通用户身份</button>
+      </div>
+      <div class="quick-form" id="quickForm" hidden>
+        <div class="field">
+          <label for="qkId">给哪个身份存账号</label>
+          <select class="select" id="qkId">
+            <option value="manager">管理员</option>
+            <option value="employee">普通用户</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="qkU">账号名</label>
+          <div class="input-shell">
+            <input class="input" id="qkU" type="text" autocapitalize="off" autocorrect="off"
+                   spellcheck="false" maxlength="20" placeholder="例如 superadmin">
+          </div>
+        </div>
+        <div class="field">
+          <label for="qkP">密码</label>
+          <div class="input-shell">
+            <input class="input" id="qkP" type="password" maxlength="72" placeholder="只存本机，不上传">
+          </div>
+        </div>
+        <div class="quick-acts">
+          <button class="btn plain" id="qkSave" type="button">保存到本机</button>
+          <button class="btn plain" id="qkClear" type="button">清空全部</button>
+        </div>
+      </div>
+    </div>
 
     <!-- 结果态 -->
     <div class="state" id="state">
@@ -399,6 +460,7 @@
     form.style.display = 'none';
     $('#foot').style.display = 'none';
     $('#legal').style.display = 'none';
+    $('#quick').style.display = 'none';
     stateBox.className = 'state show' + (kind === 'bad' ? ' bad' : (kind === 'warn' ? ' warn' : ''));
     $('#stTitle').textContent = title;
     $('#stDesc').textContent = extraDesc || desc || '';
@@ -439,11 +501,190 @@
     form.style.display = '';
     $('#foot').style.display = '';
     $('#legal').style.display = '';
+    $('#quick').style.display = '';
     setMsg('');
     inpP.value = '';
     capA.value = '';
     refreshCaptcha();
     inpP.focus();
+  }
+
+  /* ============================================================
+     开发快捷登录（一键登录 · 选身份）
+     ------------------------------------------------------------
+     设计约束（别改坏这几条）：
+       ① **账号密码不进代码库**：仓库是 public 的，凭据只存在本机 localStorage
+          `sr_quick_cred_v1`，换台机器就得重新存一次（或用 URL 带一次，见下）；
+       ② 面板默认只在本机出现（localhost / 127.0.0.1 / file://）；
+          线上要用得显式加 `?dev=1`，或者本机执行过
+          `localStorage.setItem('sr_quick','1')`；
+       ③ **不绕过服务端**：仍然调 `login` 函数，人机验证也照做——题面本来就下发在
+          页面上（算术题），脚本自己解出来，服务端照样校验 token 与答案；
+       ④ 登录后核对身份：点「管理员」进来的账号必须是 manager/viewer，否则明确报错，
+          避免"点了管理员、进来却是员工"的错觉。
+     首次填充（可选，方便做成书签）：
+       login.html?dev=1&mgr=superadmin|密码&emp=zhangsan|密码
+       —— 只读一次、写进本机 localStorage，地址栏里会留密码，自己权衡。 */
+  var QUICK = {
+    on: true,                       /* 真上线前想彻底关掉，把这里改 false 即可 */
+    key: 'sr_quick_cred_v1',
+    flag: 'sr_quick',
+    hosts: ['localhost', '127.0.0.1', '0.0.0.0', '[::1]']
+  };
+
+  function quickAllowed() {
+    if (!QUICK.on) return false;
+    if (location.protocol === 'file:') return true;
+    if (QUICK.hosts.indexOf(location.hostname) >= 0) return true;
+    if (/(^|[?&])dev=1(&|$)/.test(location.search)) return true;
+    if (/(^|[?&])dev=0(&|$)/.test(location.search)) return false;
+    /* 开发期默认可见：点过「不再显示」才会写 0；正式上线把上面 QUICK.on 改 false */
+    try { return localStorage.getItem(QUICK.flag) !== '0'; } catch (e) { return true; }
+  }
+
+  function quickLoad() {
+    try { return JSON.parse(localStorage.getItem(QUICK.key) || '{}') || {}; } catch (e) { return {}; }
+  }
+
+  function quickStore(all) {
+    try { localStorage.setItem(QUICK.key, JSON.stringify(all || {})); } catch (e) {}
+    renderQuick();
+  }
+
+  /* URL 里带的一次性种子：?dev=1&mgr=账号|密码&emp=账号|密码 */
+  (function quickSeed() {
+    if (!/(^|[?&])dev=1(&|$)/.test(location.search)) return;
+    var q = {};
+    location.search.replace(/^\?/, '').split('&').forEach(function (kv) {
+      var i = kv.indexOf('=');
+      if (i > 0) q[decodeURIComponent(kv.slice(0, i))] = decodeURIComponent(kv.slice(i + 1));
+    });
+    var map = { mgr: 'manager', emp: 'employee' }, all = quickLoad(), dirty = false;
+    Object.keys(map).forEach(function (k) {
+      if (!q[k]) return;
+      var parts = String(q[k]).split('|');
+      if (parts.length < 2 || !parts[0] || !parts[1]) return;
+      all[map[k]] = { u: parts[0].trim().toLowerCase(), p: parts[1] };
+      dirty = true;
+    });
+    if (!dirty) return;
+    try { localStorage.setItem(QUICK.key, JSON.stringify(all)); } catch (e) {}
+    /* 存完就把地址栏里的密码抹掉，别留在历史记录里 */
+    try {
+      var clean = location.search.replace(/[?&](mgr|emp)=[^&]*/g, '');
+      history.replaceState(null, '', location.pathname + clean + location.hash);
+    } catch (e) {}
+  })();
+
+  function renderQuick() {
+    var all = quickLoad();
+    var tag = function (c) { return c && c.u ? ' · ' + c.u : ' · 未设置'; };
+    $('#quickMgr').textContent = '管理员身份' + tag(all.manager);
+    $('#quickEmp').textContent = '普通用户身份' + tag(all.employee);
+  }
+
+  /* 题面形如 "12 + 7 = ?"（服务端只会出这一个格式），本地解出来当答案 */
+  function solveQuestion(text) {
+    var m = /^\s*(\d{1,3})\s*([+\-])\s*(\d{1,3})\s*=\s*\?/.exec(String(text || ''));
+    if (!m) return null;
+    var a = Number(m[1]), b = Number(m[3]);
+    return m[2] === '+' ? a + b : a - b;
+  }
+
+  var QBUSY = false;
+  function quickLogin(kind) {
+    if (QBUSY || S.busy) return;
+    var all = quickLoad(), c = all[kind];
+    if (!c || !c.u || !c.p) {
+      $('#quickForm').hidden = false;
+      $('#qkId').value = kind;
+      setMsg('先给「' + (kind === 'manager' ? '管理员' : '普通用户') + '」存一次账号密码，之后就点一下进', 'info');
+      $('#qkU').focus();
+      return;
+    }
+    QBUSY = true;
+    $('#quickMgr').disabled = true;
+    $('#quickEmp').disabled = true;
+    setMsg('正在一键登录…', 'info');
+
+    SR.api.captcha(CAP_TTL).then(function (r1) {
+      var d1 = (r1 && r1.data) || {};
+      var ans = solveQuestion(d1.question);
+      if (!d1.ok || !d1.token || ans === null) throw new Error('captcha unavailable');
+      return SR.api.login({
+        username: String(c.u).trim().toLowerCase(),
+        password: c.p,
+        device_id: SR.deviceId(),
+        ua: SR.ua(),
+        captcha_token: d1.token,
+        captcha_answer: String(ans)
+      });
+    }).then(function (res) {
+      QBUSY = false;
+      $('#quickMgr').disabled = false;
+      $('#quickEmp').disabled = false;
+      var d = (res && res.data) || {};
+      if (!d.ok) return onFail(d);
+      var role = (d.profile && d.profile.role) || '';
+      var isMgr = role === 'manager' || role === 'viewer';
+      if (kind === 'manager' && !isMgr) {
+        return onFail({ ok: false, message: '这个账号实际是「员工」身份，请点下面的「普通用户身份」' });
+      }
+      if (kind === 'employee' && isMgr) {
+        return onFail({ ok: false, message: '这个账号实际是「管理员」身份，请点上面的「管理员身份」' });
+      }
+      onSuccess(res, String(c.u).trim().toLowerCase());
+    }).catch(function () {
+      QBUSY = false;
+      $('#quickMgr').disabled = false;
+      $('#quickEmp').disabled = false;
+      setMsg('一键登录没走通（验证码或网络异常），请用上面的账号密码登录');
+    });
+  }
+
+  if (quickAllowed()) {
+    $('#quick').hidden = false;
+    renderQuick();
+
+    $('#quickMgr').addEventListener('click', function () { quickLogin('manager'); });
+    $('#quickEmp').addEventListener('click', function () { quickLogin('employee'); });
+
+    $('#quickCfg').addEventListener('click', function () {
+      var f = $('#quickForm');
+      f.hidden = !f.hidden;
+      if (!f.hidden) $('#qkU').focus();
+    });
+
+    $('#quickOff').addEventListener('click', function () {
+      try { localStorage.setItem(QUICK.flag, '0'); } catch (e) {}
+      $('#quick').hidden = true;
+      SR.ui.toast('已隐藏快捷登录（想再显示：地址后加 ?dev=1）', 'good');
+    });
+
+    $('#qkId').addEventListener('change', function () {
+      var c = quickLoad()[this.value];
+      $('#qkU').value = (c && c.u) || '';
+      $('#qkP').value = '';
+    });
+
+    $('#qkSave').addEventListener('click', function () {
+      var u = $('#qkU').value.trim().toLowerCase(), p = $('#qkP').value;
+      if (!/^[a-z0-9_]{3,20}$/.test(u)) return SR.ui.toast('账号名只能是 3–20 位字母/数字/下划线', 'bad');
+      if (!p) return SR.ui.toast('密码不能为空', 'bad');
+      var all = quickLoad();
+      all[$('#qkId').value] = { u: u, p: p };
+      quickStore(all);
+      $('#qkU').value = '';
+      $('#qkP').value = '';
+      $('#quickForm').hidden = true;
+      SR.ui.toast('已存到本机：' + u, 'good');
+    });
+
+    $('#qkClear').addEventListener('click', function () {
+      try { localStorage.removeItem(QUICK.key); } catch (e) {}
+      renderQuick();
+      SR.ui.toast('已清空本机存的账号', 'good');
+    });
   }
 })();
 </script>

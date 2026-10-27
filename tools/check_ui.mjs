@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import vm from 'node:vm';
 import { execFileSync } from 'node:child_process';
 
 const dir = path.resolve('_deploy');
@@ -151,13 +152,19 @@ for (const [label, src, needle] of mgrNeed) {
   else { problems++; say(`  [FAIL] ${label}: "${needle}" not found`); }
 }
 
-// 前端绝不允许自己写快照 / 投递表（只能通过 publish 函数）
-for (const bad of ['published_shifts', 'publish_deliveries']) {
-  if (mgr.includes(bad)) {
-    problems++;
-    say(`  [FAIL] manager.html: 直接操作了 ${bad}（应由 publish 函数负责）`);
+// 前端绝不允许自己「写」快照 / 投递表（只能通过 publish 函数）；
+// 读投递记录是允许的：工作台靠它显示「谁已读」。
+let mgrWriteSnap = 0;
+for (const tbl of ['published_shifts', 'publish_deliveries']) {
+  for (const op of ['upsert', 'insert', 'patch', 'del']) {
+    if (mgr.includes(`SR.db.${op}('${tbl}'`)) {
+      problems++;
+      mgrWriteSnap++;
+      say(`  [FAIL] manager.html: 直接写 ${tbl}（应由 publish 函数负责）`);
+    }
   }
 }
+if (mgrWriteSnap === 0) say('  [OK]   manager.html: 没有直接写快照/投递表');
 
 // ---------- 4d. 员工端「我的班表」契约 ----------
 say('\n== 4d. me page ==');
@@ -184,7 +191,6 @@ for (const bad of ['SR.db.upsert', 'SR.db.insert', 'SR.db.del', 'SR.db.patch', "
 }
 
 // ---------- 4e. 站点入口（根路径） ----------
-say('\n== 4e. site entry ==');
 const idx = fs.readFileSync(path.join(dir, 'index.html'), 'utf8');
 const idxNeed = [
   ['index: 默认去登录页', "var to = 'login.html'"],
@@ -210,6 +216,80 @@ if (!fs.existsSync(path.join(dir, 'legacy.html'))) {
   say('  [FAIL] 缺少 legacy.html（旧单机版应保留在 /legacy.html）');
 } else {
   say('  [OK]   旧单机版仍在 legacy.html');
+}
+
+// ---------- 4f. 开发快捷登录（一键登录 · 选身份） ----------
+say('\n== 4f. dev quick login ==');
+const loginSrc = pageSrc['login.html'];
+const quickNeed = [
+  ['login: 快捷面板默认隐藏（不靠 JS 也守着）', 'id="quick" hidden'],
+  ['login: 白名单 / 开关判定', 'function quickAllowed()'],
+  ['login: 本机白名单', "'localhost'"],
+  ['login: dev=1 强制显示 / dev=0 强制隐藏', 'dev=0'],
+  ['login: 本机开关 localStorage sr_quick', "'sr_quick'"],
+  ['login: 凭据只存本机', "'sr_quick_cred_v1'"],
+  ['login: 设置面板可收起（.quick [hidden] 不能被 display:flex 盖掉）', '.quick [hidden]'],
+  ['login: 有「不再显示」出口', 'id="quickOff"'],
+  ['login: 一键登录仍要 captcha_token', 'captcha_token: d1.token'],
+  ['login: 一键登录走真实 login 函数', 'SR.api.login({'],
+  ['login: 点「管理员」必须是 manager/viewer', "kind === 'manager' && !isMgr"],
+  ['login: 点「普通用户」不能是经理', "kind === 'employee' && isMgr"],
+  ['login: URL 种子用完抹掉地址栏密码', 'history.replaceState'],
+  ['login: 结果态要收起快捷面板', "$('#quick').style.display = 'none'"],
+];
+for (const [label, needle] of quickNeed) {
+  if (loginSrc.includes(needle)) say(`  [OK]   ${label}`);
+  else { problems++; say(`  [FAIL] ${label}: "${needle}" not found`); }
+}
+
+// 快捷面板里每个 id 都必须真的在页面里（addEventListener 直接崩的那种错）
+for (const id of ['quick', 'quickForm', 'quickCfg', 'quickOff', 'quickMgr', 'quickEmp', 'qkId', 'qkU', 'qkP', 'qkSave', 'qkClear']) {
+  if (!new RegExp(`\\sid="${id}"`).test(loginSrc)) {
+    problems++;
+    say(`  [FAIL] login.html: 快捷面板缺少 #${id}`);
+  }
+}
+say('  [OK]   login.html: 快捷面板 11 个控件 id 齐全');
+
+// 账号密码绝不允许写进页面（仓库是 public 的）
+const credLeak = /(mgr|emp)=[A-Za-z0-9_.-]{2,}\|[^\s&"']{4,}/.test(loginSrc)
+  || /password\s*:\s*['"][^'"]{4,}['"]/.test(loginSrc)
+  || /\bu\s*:\s*['"][a-z0-9_]{3,20}['"]\s*,\s*p\s*:\s*['"][^'"]+['"]/.test(loginSrc);
+if (credLeak) {
+  problems++;
+  say('  [FAIL] login.html: 疑似把账号密码硬编码进页面（只允许存本机 localStorage）');
+} else {
+  say('  [OK]   login.html: 没有硬编码的账号密码');
+}
+
+// 快捷登录要能自己解出服务端算式（题面就是 "12 + 7 = ?" 这种）
+const qFnSrc = (/function solveQuestion\(text\) \{[\s\S]*?\n  \}/.exec(loginSrc) || [])[0];
+if (!qFnSrc) {
+  problems++;
+  say('  [FAIL] login.html: 找不到 solveQuestion()');
+} else {
+  let qFn = null;
+  try { qFn = vm.runInNewContext('(' + qFnSrc + ')', {}); } catch (e) { qFn = null; }
+  if (typeof qFn !== 'function') {
+    problems++;
+    say('  [FAIL] login.html: solveQuestion 无法解析（' + String(qFnSrc).slice(0, 40) + '…）');
+  } else {
+    const qCases = [['12 + 7 = ?', 19], ['13 - 5 = ?', 8], ['3 + 4 = ?', 7],
+      ['20 - 20 = ?', 0], ['9 - 12 = ?', -3]];
+    const bad = qCases.filter(([q, want]) => qFn(q) !== want);
+    if (bad.length) {
+      problems++;
+      say('  [FAIL] solveQuestion 解错了：' + bad.map(([q, w]) => `${q} 应为 ${w}`).join(' / '));
+    } else {
+      say(`  [OK]   solveQuestion 能解服务端题面（${qCases.length} 例）`);
+    }
+    if ([null, undefined, '', '??', '12 * 7 = ?'].some((x) => qFn(x) !== null)) {
+      problems++;
+      say('  [FAIL] solveQuestion 对非算式应返回 null（否则会拿错答案去登录）');
+    } else {
+      say('  [OK]   solveQuestion 对非算式返回 null');
+    }
+  }
 }
 
 // ---------- 5. 体积 ----------

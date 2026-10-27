@@ -130,6 +130,7 @@
     timer: null,
     saving: false,
     published: null,
+    ack: null,       /* { seen, total, pending: [姓名…] }·这一版员工「已知晓」回执统计 */
     readonly: ME.role !== 'manager',
     domain: '*',
     q: '',
@@ -191,7 +192,7 @@
       SR.db.select('weeks', 'week_key=eq.' + week + '&select=week_key,status'),
       SR.db.select('staff', 'select=name,domain,module,position,level&active=is.true&order=domain.asc,name.asc'),
       SR.db.select('shifts', 'week_key=eq.' + week + '&select=staff_name,day,slot,role'),
-      SR.db.select('publish_versions', 'week_key=eq.' + week + '&select=version,published_at&order=version.desc&limit=1')
+      SR.db.select('publish_versions', 'week_key=eq.' + week + '&select=publish_id,version,published_at&order=version.desc&limit=1')
     ]).then(function (r) {
       var wk = r[0], st = r[1], sh = r[2], pv = r[3];
       if (wk.http === 401 || st.http === 401) { reauth(); return; }
@@ -213,6 +214,7 @@
       S.published = (pv.ok && pv.data && pv.data[0]) ? pv.data[0] : null;
       setSave('草稿已同步', 'ok');
       renderAll();
+      loadAck();
     }).catch(function (e) {
       fail(String(e && e.message ? e.message : e));
     });
@@ -331,13 +333,51 @@
     return '<div class="stat"><div class="n">' + n + '</div><div class="k">' + k + '</div></div>';
   }
 
+  /* ---------------- 已知晓回执 ---------------- */
+  /* 只统计「这一版」：publish 时为每个排了班的员工建一条 inapp 投递，
+     员工在「我的班表」点确认后，Edge Function ack 把那条的 status 改成 seen。 */
+  function loadAck() {
+    var pid = S.published && S.published.publish_id;
+    S.ack = null;
+    if (!pid) { pubBadge(); return; }
+    pubBadge();
+
+    SR.db.select('publish_deliveries',
+      'publish_id=eq.' + encodeURIComponent(pid) + '&select=staff_name,status')
+      .then(function (r) {
+        /* 期间切了周：丢掉过期结果 */
+        if (!S.published || S.published.publish_id !== pid) return;
+        if (!r.ok || !r.data) { S.ack = null; pubBadge(); return; }
+        var seen = 0, pending = [];
+        r.data.forEach(function (d) {
+          if (d.status === 'seen') seen++;
+          else pending.push(d.staff_name);
+        });
+        S.ack = { seen: seen, total: r.data.length, pending: pending };
+        pubBadge();
+      })
+      .catch(function () {
+        if (!S.published || S.published.publish_id !== pid) return;
+        S.ack = null;
+        pubBadge();
+      });
+  }
+
   function pubBadge() {
     var b = $('#pubBadge');
     b.hidden = false;
+    b.title = '';
     if (S.published) {
       var dirty = Object.keys(S.dirty).length > 0;
       b.className = 'badge ' + (dirty ? 'warn' : 'ok');
-      b.textContent = (dirty ? '有未发布改动 · ' : '已发布 ') + 'v' + S.published.version;
+      var txt = (dirty ? '有未发布改动 · ' : '已发布 ') + 'v' + S.published.version;
+      if (S.ack && S.ack.total) {
+        txt += ' · 已知晓 ' + S.ack.seen + '/' + S.ack.total;
+        b.title = S.ack.pending.length
+          ? '还没确认：' + S.ack.pending.join('、')
+          : '全员已确认';
+      }
+      b.textContent = txt;
     } else {
       b.className = 'badge info';
       b.textContent = '尚未发布';
@@ -458,6 +498,11 @@
   $('#reload').addEventListener('click', function () {
     if (Object.keys(S.dirty).length && !confirm('还有改动没保存，刷新会丢掉，继续？')) return;
     load(S.week);
+  });
+
+  /* 切回页面时补一次回执统计：员工确认后不用手工刷新也能看到 */
+  window.addEventListener('focus', function () {
+    if (S.published && !S.busy) loadAck();
   });
 
   $('#domSeg').addEventListener('click', function (e) {

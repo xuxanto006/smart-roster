@@ -57,6 +57,7 @@
     return;
   }
 
+  var TOKEN = session.access_token;
   var ME = {
     username: session.username || '',
     name: session.display_name || session.username || '',
@@ -85,6 +86,8 @@
     rows: [],          /* 该周自己那一份快照 */
     pubs: [],          /* 自己的投递记录，用来判断哪个 publish_id 最新 */
     rank: {},          /* publish_id -> 投递序号（越大越新） */
+    meta: {},          /* publish_id -> {status, seen_at}（用来显示「已知晓」） */
+    cur: '',           /* 当前正在展示的 publish_id */
     busy: false
   };
 
@@ -145,7 +148,7 @@
       SR.db.select('published_shifts',
         'week_key=eq.' + week + '&select=publish_id,day,slot,role'),
       SR.db.select('publish_deliveries',
-        'select=id,publish_id&order=id.desc&limit=500')
+        'select=id,publish_id,status,seen_at&order=id.desc&limit=500')
     ]).then(function (r) {
       var sh = r[0], dl = r[1];
       if (sh.http === 401 || dl.http === 401) { reauth(); return; }
@@ -154,9 +157,12 @@
 
       S.pubs = (dl.ok && dl.data) ? dl.data : [];
       S.rank = {};
+      S.meta = {};
       S.pubs.forEach(function (p, i) {
         /* order=id.desc，越靠前越新；用「倒序名次」当排序权重 */
         S.rank[p.publish_id] = S.pubs.length - i;
+        /* status / seen_at 顺便记住：seen = 我已经点过「已知晓」 */
+        S.meta[p.publish_id] = { status: p.status || '', seen_at: p.seen_at || null };
       });
 
       /* 同一周若发布过多次，只保留最新一版 */
@@ -166,6 +172,7 @@
         var w = S.rank[x.publish_id] || 0;
         if (!best || w > (S.rank[best] || 0)) best = x.publish_id;
       });
+      S.cur = best;
       S.rows = best ? all.filter(function (x) { return x.publish_id === best; }) : [];
 
       render();
@@ -231,7 +238,60 @@
       '<span>未排 <b>' + (7 - S.rows.length) + '</b> 天</span>' +
       '</div></div>';
 
+    h += ackHtml();
+
     $('#body').innerHTML = h;
+
+    var ab = $('#ackBtn');
+    if (ab) ab.addEventListener('click', ack);
+  }
+
+  /* ---------------- 已知晓回执 ---------------- */
+  function fmtSeen(iso) {
+    if (!iso) return '';
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return '';
+    return (d.getMonth() + 1) + '/' + d.getDate() + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+  }
+
+  function ackHtml() {
+    var m = S.meta[S.cur] || {};
+    if (m.status === 'seen') {
+      return '<div class="ackbar done">' +
+        '<span class="ack-text"><b>✓ 已确认知晓</b> · ' + esc(fmtSeen(m.seen_at)) +
+        '，经理端能看到这条记录</span></div>';
+    }
+    return '<div class="ackbar">' +
+      '<span class="ack-text">看完点右边确认一下，经理那边就能看到你已知晓。</span>' +
+      '<button class="btn primary sm" id="ackBtn" type="button">我已看过，确认知晓</button></div>';
+  }
+
+  function ack() {
+    if (S.busy || !S.cur) return;
+    var btn = $('#ackBtn');
+    S.busy = true;
+    SR.ui.setLoading(btn, true);
+
+    SR.api.call('ack', { method: 'POST', body: { token: TOKEN, publish_id: S.cur } })
+      .then(function (res) {
+        S.busy = false;
+        SR.ui.setLoading(btn, false);
+        if (res.http === 401) { reauth(); return; }
+
+        var d = res.data || {};
+        if (!d.ok) {
+          SR.ui.toast(d.error || '确认没记上，请稍后再试', 'bad');
+          return;
+        }
+        S.meta[S.cur] = { status: 'seen', seen_at: d.seen_at || new Date().toISOString() };
+        SR.ui.toast(d.already ? '这一版你已经确认过了' : '已记下你的确认', 'good');
+        render();
+      })
+      .catch(function () {
+        S.busy = false;
+        SR.ui.setLoading(btn, false);
+        SR.ui.toast('网络不太顺，请再点一次', 'bad');
+      });
   }
 
   /* ---------------- 周切换 ---------------- */

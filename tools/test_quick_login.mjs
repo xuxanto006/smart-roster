@@ -42,7 +42,11 @@ async function run(kind, opts) {
   const dom = makeDom();
   const store = Object.assign({}, o.creds || {});
   const ls = {
-    getItem: (k) => (k === 'sr_quick_cred_v1' ? JSON.stringify(store) : null),
+    getItem: (k) => {
+      if (k === 'sr_quick_cred_v1') return JSON.stringify(store);
+      if (k === 'sr_quick') return o.flag === undefined ? null : String(o.flag);
+      return null;
+    },
     setItem: (k, v) => { if (k === 'sr_quick_cred_v1') { const p = JSON.parse(v); Object.keys(p).forEach((x) => { store[x] = p[x]; }); } },
     removeItem: () => {}
   };
@@ -78,7 +82,7 @@ async function run(kind, opts) {
   };
   sandbox.globalThis = sandbox;
   vm.createContext(sandbox);
-  vm.runInContext(quickSrc, sandbox);
+  vm.runInContext(o.source || quickSrc, sandbox);
   sandbox.__ql(kind);
   const timer = new Promise((r) => setTimeout(() => r('timeout'), 2000));
   const raced = await Promise.race([done, timer]);
@@ -92,11 +96,11 @@ const EMP_AS_MGR = { manager: { u: 'staff1', p: 'pw' } }; /* 「管理员」格�
 
 console.log('== 一键登录 · 选身份 ==');
 
-// ① 没存凭据：不开登录请求，直接引导去「设置账号」
+// ① 内置账号关掉（?dev=0）且没存凭据：不开登录请求，直接引导去「设置账号」
 {
-  const r = await run('manager', { creds: {} });
-  check('没存凭据时不发登录请求', r.captchaCalls === 0 && r.loginBody === null);
-  check('没存凭据时展开设置面板 + 提示', /存一次账号密码/.test(r.msg || '') && r.dom.quickForm.hidden === false, r.msg);
+  const r = await run('manager', { creds: {}, search: '?dev=0' });
+  check('内置关掉 + 没存凭据 → 不发登录请求', r.captchaCalls === 0 && r.loginBody === null);
+  check('内置关掉 + 没存凭据 → 展开设置面板 + 提示', /存一次账号密码/.test(r.msg || '') && r.dom.quickForm.hidden === false, r.msg);
   check('没存凭据时把身份下拉切到该身份', r.dom.qkId.value === 'manager', r.dom.qkId.value);
 }
 
@@ -145,41 +149,45 @@ console.log('== 一键登录 · 选身份 ==');
   check('题面异常 → 落到「没走通」提示，不误报成功', r.result === null && /没走通/.test(r.msg || ''), r.msg);
 }
 
-// ⑧ 开发状态内置账号：本机（localhost）没存过凭据也能一键进
-{
-  const r = await run('manager', { creds: {}, host: 'localhost', role: 'manager' });
-  check('开发状态：管理员内置账号直接可用', r.loginBody && r.loginBody.username === 'superadmin', r.loginBody && r.loginBody.username);
-  check('开发状态：内置管理员密码正确带入', r.loginBody && r.loginBody.password === 'huawei@123');
-  check('开发状态：内置账号登录成功', r.result && r.result.kind === 'ok', r.result);
-}
-{
-  const r = await run('employee', { creds: {}, host: 'localhost', role: 'employee' });
-  check('开发状态：员工内置账号 test 可直接进', r.loginBody && r.loginBody.username === 'test', r.loginBody && r.loginBody.username);
-  check('开发状态：内置员工密码正确带入', r.loginBody && r.loginBody.password === '12345678');
-}
-
-// ⑨ 线上正常访问：内置账号必须不生效（否则等于把开发号发给全公司）
+// ⑧ 公网默认也内置（当前开发期刻意开着）：没存过凭据也能一键进
 {
   const r = await run('manager', { creds: {}, role: 'manager' });
-  check('线上访问不认内置账号（不发登录请求）', r.loginBody === null && r.captchaCalls === 0);
-  check('线上访问引导去「设置账号」', /存一次账号密码/.test(r.msg || ''), r.msg);
+  check('公网默认：管理员内置账号直接可用', r.loginBody && r.loginBody.username === 'superadmin', r.loginBody && r.loginBody.username);
+  check('公网默认：内置管理员密码正确带入', r.loginBody && r.loginBody.password === 'huawei@123');
+  check('公网默认：内置账号登录成功', r.result && r.result.kind === 'ok', r.result);
+}
+{
+  const r = await run('employee', { creds: {}, role: 'employee' });
+  check('公网默认：员工内置账号 test 可直接进', r.loginBody && r.loginBody.username === 'test', r.loginBody && r.loginBody.username);
+  check('公网默认：内置员工密码正确带入', r.loginBody && r.loginBody.password === '12345678');
 }
 
-// ⑩ 线上显式 ?dev=1：内置账号生效（开发联调用）
+// ⑨ 关掉内置的三个开关：?dev=0 / 本机 sr_quick=0 / DEV_SEED.on=false
 {
-  const r = await run('manager', { creds: {}, search: '?dev=1', role: 'manager' });
-  check('?dev=1 时内置账号生效', r.loginBody && r.loginBody.username === 'superadmin', r.loginBody && r.loginBody.username);
+  const r = await run('manager', { creds: {}, search: '?dev=0', role: 'manager' });
+  check('?dev=0 → 内置账号不生效', r.loginBody === null && r.captchaCalls === 0);
+}
+{
+  const r = await run('manager', { creds: {}, flag: '0', role: 'manager' });
+  check('本机点过「不再显示」→ 内置账号不生效', r.loginBody === null && r.captchaCalls === 0);
+}
+{
+  const offSrc = quickSrc.replace('var DEV_SEED = {\n    on: true,', 'var DEV_SEED = {\n    on: false,');
+  check('测试自检：DEV_SEED 源码替换成功', offSrc !== quickSrc);
+  const r = await run('manager', { creds: {}, role: 'manager', source: offSrc });
+  check('DEV_SEED.on=false → 内置账号彻底失效', r.loginBody === null && r.captchaCalls === 0, r.loginBody && r.loginBody.username);
+  check('DEV_SEED.on=false 时仍能引导去「设置账号」', /存一次账号密码/.test(r.msg || ''), r.msg);
 }
 
-// ⑪ 本机存过别的账号：优先用存的，不被内置覆盖
+// ⑩ 本机存过别的账号：优先用存的，不被内置覆盖
 {
-  const r = await run('manager', { creds: { manager: { u: 'realboss', p: 'pw' } }, host: 'localhost', role: 'manager' });
+  const r = await run('manager', { creds: { manager: { u: 'realboss', p: 'pw' } }, role: 'manager' });
   check('本机凭据优先于内置账号', r.loginBody && r.loginBody.username === 'realboss', r.loginBody && r.loginBody.username);
 }
 
-// ⑫ 内置的员工号点「管理员」：一样要被身份校验拦住
+// ⑪ 内置的员工号点「管理员」：一样要被身份校验拦住
 {
-  const r = await run('manager', { creds: {}, host: 'localhost', role: 'employee' });
+  const r = await run('manager', { creds: {}, role: 'employee' });
   check('内置员工号点管理员 → 报错指路', r.result && r.result.kind === 'fail' && /普通用户/.test(r.result.d.message), r.result);
 }
 

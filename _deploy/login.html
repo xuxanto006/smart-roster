@@ -574,41 +574,44 @@
      开发快捷登录（一键登录 · 选身份）
      ------------------------------------------------------------
      设计约束（别改坏这几条）：
-       ① **凭据只在「开发状态」生效**：内置开发账号（DEV_SEED）只在本机 / ?dev=1 时采用；
-          线上正式访问一律忽略内置账号。手动存的凭据只写进本机 localStorage
-          `sr_quick_cred_v1`，仓库代码里不出现业务账号密码（DEV_SEED 是开发账号，上线前要关）；
-       ② 面板默认只在本机出现（localhost / 127.0.0.1 / file://）；
-          线上要用得显式加 `?dev=1`，或者本机执行过
-          `localStorage.setItem('sr_quick','1')`；
-       ③ **不绕过服务端**：仍然调 `login` 函数，人机验证也照做——题面本来就下发在
+       ① **开发期公网也开着**（当前阶段刻意为之）：面板与内置开发账号（DEV_SEED）
+          在公网默认同样生效，方便随手点进去看。想收口只有三个开关：
+          · `DEV_SEED.on = false`（内置账号立即失效，最彻底）
+          · `QUICK.on = false`（整块面板消失）
+          · 地址加 `?dev=0`，或点面板上的「不再显示」（只对这台机器生效）
+       ② **不绕过服务端**：仍然调 `login` 函数，人机验证也照做——题面本来就下发在
           页面上（算术题），脚本自己解出来，服务端照样校验 token 与答案；
-       ④ 登录后核对身份：点「管理员」进来的账号必须是 manager/viewer，否则明确报错，
+       ③ 登录后核对身份：点「管理员」进来的账号必须是 manager/viewer，否则明确报错，
           避免"点了管理员、进来却是员工"的错觉。
+       ④ 手动存的凭据只写进本机 localStorage `sr_quick_cred_v1`，不会回传服务器。
+     ⚠ 现在公网上任何拿到地址的人都能一键进 superadmin。真上线前务必先关掉 DEV_SEED。
      首次填充（可选，方便做成书签）：
        login.html?dev=1&mgr=superadmin|密码&emp=zhangsan|密码
        —— 只读一次、写进本机 localStorage，地址栏里会留密码，自己权衡。 */
   var QUICK = {
-    on: true,                       /* 真上线前想彻底关掉，把这里改 false 即可 */
+    on: true,                       /* 想彻底关掉：改 false 并重新部署 */
     key: 'sr_quick_cred_v1',
     flag: 'sr_quick',
     hosts: ['localhost', '127.0.0.1', '0.0.0.0', '[::1]']
   };
 
-  /* 开发状态内置账号：只在「开发状态」生效（见 seedAllowed），正式访问不认它。
-     ⚠ 这里是明文密码，仓库若是 public 就等于公开；上线前务必把 DEV_SEED.on 改 false
-       或整段删掉。 */
+  /* 开发期内置账号：公网默认同样生效（当前阶段），关掉只需把 on 改 false。
+     ⚠ 这里是明文密码，仓库若是 public 就等于公开。 */
   var DEV_SEED = {
     on: true,
     manager: { u: 'superadmin', p: 'huawei@123' },
     employee: { u: 'test', p: '12345678' }
   };
 
-  /* 「开发状态」= 本机打开 / 显式 ?dev=1；线上正常访问返回 false（内置账号不生效） */
+  /* 目前与 quickAllowed 同语义：默认开 → `?dev=0` 或本机点过「不再显示」才关。
+     以后要恢复「只有本机/开发状态才有内置账号」，把下面几行换成
+     `if (location.protocol === 'file:') return true;
+      if (QUICK.hosts.indexOf(location.hostname) >= 0) return true;
+      return /(^|[?&])dev=1(&|$)/.test(location.search);` 即可 */
   function seedAllowed() {
     if (!DEV_SEED.on) return false;
-    if (location.protocol === 'file:') return true;
-    if (QUICK.hosts.indexOf(location.hostname) >= 0) return true;
-    return /(^|[?&])dev=1(&|$)/.test(location.search);
+    if (/(^|[?&])dev=0(&|$)/.test(location.search)) return false;
+    try { return localStorage.getItem(QUICK.flag) !== '0'; } catch (e) { return true; }
   }
 
   function quickAllowed() {

@@ -236,14 +236,26 @@ const quickNeed = [
   ['login: 点「普通用户」不能是经理', "kind === 'employee' && isMgr"],
   ['login: URL 种子用完抹掉地址栏密码', 'history.replaceState'],
   ['login: 结果态要收起快捷面板', "$('#quick').style.display = 'none'"],
-  ['login: 开发状态内置账号开关', 'var DEV_SEED = {'],
-  ['login: 内置账号只认开发状态（门禁）', 'if (!DEV_SEED.on) return false;'],
+  ['login: 内置账号总开关（DEV_SEED.on）', 'var DEV_SEED = {'],
+  ['login: 内置账号总开关能一刀关掉', 'if (!DEV_SEED.on) return false;'],
   ['login: 内置账号优先度低于本机凭据', 'if (!all.manager || !all.manager.u) all.manager = DEV_SEED.manager'],
   ['login: 内置密码不会被写回 localStorage', 'all = quickLoadRaw(), dirty = false;'],
 ];
 for (const [label, needle] of quickNeed) {
   if (loginSrc.includes(needle)) say(`  [OK]   ${label}`);
   else { problems++; say(`  [FAIL] ${label}: "${needle}" not found`); }
+}
+
+// 内置账号的开关逻辑必须同时受 ?dev=0 与本机 sr_quick 控制（公网默认开着，但随时能收）
+const seedFn = (/function seedAllowed\(\) \{[\s\S]*?\n  \}/.exec(loginSrc) || [])[0] || '';
+if (!seedFn) {
+  problems++;
+  say('  [FAIL] login.html: 找不到 seedAllowed()');
+} else if (!/DEV_SEED\.on/.test(seedFn) || !/dev=0/.test(seedFn) || !/QUICK\.flag/.test(seedFn)) {
+  problems++;
+  say('  [FAIL] login.html: seedAllowed() 缺少开关（要同时认 DEV_SEED.on / ?dev=0 / 本机 sr_quick）');
+} else {
+  say('  [OK]   login.html: 内置账号三个开关齐全（DEV_SEED.on / ?dev=0 / 本机 sr_quick）');
 }
 
 // 快捷面板里每个 id 都必须真的在页面里（addEventListener 直接崩的那种错）
@@ -277,8 +289,8 @@ for (const pw of ['huawei@123', '12345678']) {
   }
 }
 if (seedBlock.includes('huawei@123') && seedBlock.includes('12345678')) {
-  say('  [WARN] login.html: 内置开发账号是明文（superadmin / test），仓库若是 public 等于公开');
-  say('         → 上线前把 DEV_SEED.on 改 false 或删掉整块；正式访问不认它（seedAllowed 门禁）');
+  say('  [WARN] login.html: 内置开发账号是明文（superadmin / test），且公网默认生效');
+  say('         → 收口：DEV_SEED.on=false（内置账号失效）或 QUICK.on=false（整块面板消失），改完重新部署');
 }
 
 // 快捷登录要能自己解出服务端算式（题面就是 "12 + 7 = ?" 这种）

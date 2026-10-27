@@ -277,7 +277,7 @@ for (const pw of ['huawei@123', '12345678']) {
   }
 }
 if (seedBlock.includes('huawei@123') && seedBlock.includes('12345678')) {
-  say('  [WARN] login.html: 内置开发账号是明文（superadmin / xmt），仓库若是 public 等于公开');
+  say('  [WARN] login.html: 内置开发账号是明文（superadmin / test），仓库若是 public 等于公开');
   say('         → 上线前把 DEV_SEED.on 改 false 或删掉整块；正式访问不认它（seedAllowed 门禁）');
 }
 

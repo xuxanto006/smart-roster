@@ -154,7 +154,8 @@ console.log('== 一键登录 · 选身份 ==');
 }
 {
   const r = await run('employee', { creds: {}, host: 'localhost', role: 'employee' });
-  check('开发状态：员工内置账号 xmt 可直接进', r.loginBody && r.loginBody.username === 'xmt', r.loginBody && r.loginBody.username);
+  check('开发状态：员工内置账号 test 可直接进', r.loginBody && r.loginBody.username === 'test', r.loginBody && r.loginBody.username);
+  check('开发状态：内置员工密码正确带入', r.loginBody && r.loginBody.password === '12345678');
 }
 
 // ⑨ 线上正常访问：内置账号必须不生效（否则等于把开发号发给全公司）

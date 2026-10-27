@@ -117,7 +117,18 @@
     return call('captcha' + q, { method: 'GET' });
   }
   function login(body) { return call('login', { method: 'POST', body: body }); }
-  function register(body) { return call('register', { method: 'POST', body: body }); }
+  /* 注册同样要上报本机标识：device_bans 的黑名单在注册口也要生效，
+     否则被拉黑的设备换个账号名注册就又回来了。device_id 一律由本机生成，
+     不接受调用方传入（避免被参数覆盖成别人的 hash）。 */
+  function register(body) {
+    var b = {};
+    var src = body || {};
+    for (var k in src) {
+      if (Object.prototype.hasOwnProperty.call(src, k)) b[k] = src[k];
+    }
+    b.device_id = deviceId();
+    return call('register', { method: 'POST', body: b });
+  }
   /* 邀请码预检：注册第 1 步「下一步」用来向服务端确认真实有效（存在 / 未停用 / 在有效期 / 次数未用完） */
   function checkInvite(code) {
     return call('register', { method: 'POST', body: { action: 'check_invite', invite_code: code } });

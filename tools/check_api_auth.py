@@ -10,11 +10,14 @@
 本脚本用无头 Edge 真正加载 _deploy/auth-core.js，拦下 fetch 看实际 init：
   · 传 auth  → 有 Authorization: Bearer <token>，Content-Type 仍是 text/plain
   · 不传     → 完全没有 Authorization，也不该有任何自定义头
+  · register → 必须自动补上本机 device_id（服务端 device_bans 黑名单靠它生效），
+               且调用方自己传的 device_id 一律被忽略
 
 用法：python tools/check_api_auth.py
 """
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -47,10 +50,14 @@ window.__run = function () {
   return Promise.all([
     SR.api.call('ack', { method: 'POST', auth: 'TOKEN-A', body: { token: 'TOKEN-A', publish_id: 'p1' } }),
     SR.api.call('publish', { method: 'POST', body: { token: 'TOKEN-B', week_key: 'w' } }),
-    SR.api.call('login', { method: 'POST', body: { username: 'u' } })
+    SR.api.call('login', { method: 'POST', body: { username: 'u' } }),
+    SR.api.register({ username: 'test01', password: 'passw0rd!', invite_code: 'ABC123' }),
+    /* 调用方试图指定 device_id：必须被忽略，一律用本机生成的 */
+    SR.api.register({ username: 'test02', invite_code: 'ABC123', device_id: 'SPOOFED-DEVICE-HASH-0001' })
   ]).then(function (res) {
     return JSON.stringify({
       hasSR: !!window.SR,
+      mine: SR.deviceId(),
       http: res.map(function (r) { return r.http; }),
       log: window.__log,
       errs: window.__errs
@@ -143,10 +150,10 @@ def main():
                     print("   %-14s %s" % (k, v))
                 print("   body          %s" % entry["body"])
 
-            if len(out["log"]) != 3:
-                fails.append("只拦截到 %d 个请求，应为 3" % len(out["log"]))
+            if len(out["log"]) != 5:
+                fails.append("只拦截到 %d 个请求，应为 5" % len(out["log"]))
             else:
-                ack, pub, login = out["log"]
+                ack, pub, login, reg, reg_spoof = out["log"]
 
                 if ack["headers"].get("Authorization") != "Bearer TOKEN-A":
                     fails.append("ack 没带 Authorization: Bearer <token>，过不了 Supabase 网关验签")
@@ -155,7 +162,8 @@ def main():
                 if json.loads(ack["body"]).get("publish_id") != "p1":
                     fails.append("ack 的 body 不对：%s" % ack["body"])
 
-                for name, e in (("publish", pub), ("login", login)):
+                for name, e in (("publish", pub), ("login", login), ("register", reg),
+                                ("register(假装指定 device_id)", reg_spoof)):
                     if "Authorization" in e["headers"]:
                         fails.append("%s 多带了 Authorization，会平白触发预检" % name)
                     if e["headers"].get("Content-Type") != "text/plain;charset=UTF-8":
@@ -163,6 +171,24 @@ def main():
                     extra = set(e["headers"]) - {"Content-Type"}
                     if extra:
                         fails.append("%s 带了额外自定义头 %s，会触发预检" % (name, sorted(extra)))
+
+                # 注册必须上报本机 device_id：服务端 device_bans 黑名单靠它生效
+                DEVICE_RE = re.compile(r"^[A-Za-z0-9_-]{16,128}$")
+                for name, e in (("register", reg), ("register(假装指定)", reg_spoof)):
+                    b = json.loads(e["body"])
+                    did = b.get("device_id")
+                    if not isinstance(did, str) or not DEVICE_RE.match(did):
+                        fails.append("%s 的 device_id 缺失或格式不合法：%r" % (name, did))
+                    if did == "SPOOFED-DEVICE-HASH-0001":
+                        fails.append("%s 采纳了调用方传入的 device_id（应一律用本机生成的）" % name)
+
+                b = json.loads(reg["body"])
+                if b.get("username") != "test01" or b.get("invite_code") != "ABC123" \
+                        or b.get("password") != "passw0rd!":
+                    fails.append("register 原有字段被覆盖/丢失：%s" % reg["body"])
+                if json.loads(reg_spoof["body"]).get("username") != "test02":
+                    fails.append("register 原有字段被覆盖/丢失：%s" % reg_spoof["body"])
+                print("\n本机 device_id: %s" % out.get("mine"))
 
             if out["errs"]:
                 fails.append("页面 JS 报错：%s" % out["errs"])
@@ -179,7 +205,7 @@ def main():
         for f in fails:
             print("  - " + f)
         return 1
-    print("AUTH HEADER CHECKS PASSED: ack 带 Bearer，其余仍是简单请求")
+    print("AUTH HEADER CHECKS PASSED: ack 带 Bearer；其余仍是简单请求；register 自动带本机 device_id")
     return 0
 
 

@@ -29,6 +29,7 @@ const mock = {
   dupUsername: [],
   staffFound: [{ name: '何广友' }],
   staffClaimed: [],
+  bannedDevices: [],
   checkInvite: 'ok',
   redeemResult: 'ok',
   createUserResult: { id: '11111111-1111-1111-1111-111111111111' },
@@ -72,6 +73,9 @@ globalThis.fetch = async (url, init = {}) => {
   }
   if (method === 'GET' && path.startsWith('/rest/v1/profiles?staff_name=')) {
     return jsonRes(mock.staffClaimed);
+  }
+  if (method === 'GET' && path.startsWith('/rest/v1/device_bans?')) {
+    return jsonRes(mock.bannedDevices);
   }
 
   // ---- RPC ----
@@ -148,6 +152,7 @@ function setMock(over) {
     dupUsername: [],
     staffFound: [{ name: '何广友' }],
     staffClaimed: [],
+    bannedDevices: [],
     checkInvite: 'ok',
     redeemResult: 'ok',
     createUserResult: { id: '11111111-1111-1111-1111-111111111111' },
@@ -184,6 +189,7 @@ async function postRegister(payload) {
         password: 'passw0rd!',
         invite_code: 'ABC123',
         staff_name: '何广友',
+        device_id: 'abcdef0123456789abcdef',
         captcha_token: t.token,
         captcha_answer: answerOf(t.question),
         ...payload,
@@ -257,6 +263,53 @@ setMock({});
 {
   const r = await postRegister({ invite_code: '' });
   ok('邀请码为空 → BAD_INVITE', r.data.code === 'BAD_INVITE', r.data);
+}
+
+// ---------- 设备黑名单（注册口也要拦被拉黑的设备）----------
+setMock({});
+resetCalls();
+{
+  const r = await postRegister({ device_id: '' });
+  ok('没带 device_id → BAD_DEVICE', r.data.code === 'BAD_DEVICE', r.data);
+  ok('  且一个请求都没发（纯本地格式校验）', calls.length === 0, calls.map((c) => c.path));
+}
+setMock({});
+{
+  const r = await postRegister({ device_id: 'too-short' });
+  ok('device_id 太短 → BAD_DEVICE', r.data.code === 'BAD_DEVICE', r.data);
+}
+setMock({});
+{
+  const r = await postRegister({ device_id: 'abcdef0123456789&lifted_at=neq.null' });
+  ok('device_id 夹带查询串 → BAD_DEVICE（正则挡掉注入）', r.data.code === 'BAD_DEVICE', r.data);
+}
+
+setMock({ bannedDevices: [{ device_hash: 'abcdef0123456789abcdef' }] });
+resetCalls();
+{
+  const r = await postRegister({});
+  ok('设备被拉黑 → DEVICE_BANNED', r.data.code === 'DEVICE_BANNED', r.data);
+  ok('  文案点明「设备已被禁用」', String(r.data.error || '').includes('设备已被禁用'), r.data.error);
+  ok('  第一步就查 device_bans（先于账号名/员工名检查）',
+    String(calls[0]?.path || '').startsWith('/rest/v1/device_bans?'),
+    calls.map((c) => c.method + ' ' + c.path).slice(0, 3));
+  ok('  查询带 lifted_at=is.null（解封过的不算黑名单）',
+    String(calls[0]?.path || '').includes('lifted_at=is.null'), calls[0]?.path);
+  ok('  没查账号名/员工名（不给被拉黑设备探测占用情况）',
+    !called('/rest/v1/profiles?username=') && !called('/rest/v1/staff?name='),
+    calls.map((c) => c.path));
+  ok('  且没有建 Auth 号', !called('/auth/v1/admin/users'), calls.map((c) => c.method + ' ' + c.path));
+  ok('  且没有写 profile', !calls.some((c) => c.method === 'POST' && c.path === '/rest/v1/profiles'));
+  ok('  且没有占用邀请码', !called('redeem_invite'));
+  ok('  留下审计 register_blocked',
+    calls.some((c) => c.path === '/rest/v1/audit_logs' && c.body?.action === 'register_blocked'),
+    calls.filter((c) => c.path === '/rest/v1/audit_logs').map((c) => c.body));
+}
+setMock({ bannedDevices: [] });
+resetCalls();
+{
+  const r = await postRegister({});
+  ok('设备不在黑名单 → 放行（不误伤）', r.data.ok === true, r.data);
 }
 
 setMock({ dupUsername: [{ id: 'x', username: 'test01', staff_name: null }] });

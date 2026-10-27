@@ -5,6 +5,7 @@
 // {
 //   username, password,
 //   invite_code, captcha_token, captcha_answer,
+//   device_id,        // 必填：本机随机标识（localStorage），与登录共用同一份 device_bans
 //   staff_name?,      // 从「员工名单」里选自己，可不填留待经理审核时绑定
 //   apply_note?       // 申请说明
 // }
@@ -12,10 +13,17 @@
 // 业务失败：400 { ok:false, code, error }
 //
 // 顺序很重要（先难后易，避免脏数据）：
-//   验证码 → 格式校验 → 员工名占用检查 → 邀请码预检 → 建 Auth 用户
-//   → 写入 profile(status=pending) → 邀请码原子占用（失败则回滚 profile + 删号）→ 审计
+//   验证码 → 格式校验（含 device_id）→ 设备黑名单 → 员工名占用检查 → 邀请码预检
+//   → 建 Auth 用户 → 写入 profile(status=pending)
+//   → 邀请码原子占用（失败则回滚 profile + 删号）→ 审计
 //   ⚠️ profile 必须早于 redeem_invite：invite_uses.profile_id 外键指向 profiles(id)，
 //      反过来做会触发 23503，整个占用事务回滚、注册直接 500（2026-10-27 实测踩过）
+//
+// 为什么注册也要查设备黑名单（只在登录拦是不够的）：
+//   离职封禁会把该账号名下所有设备永久拉黑（device_bans）。若注册不查，
+//   同一个被拉黑的设备只要换个新账号名、甚至认领另一个员工名，就又回来了 ——
+//   等于把「设备永久拉黑」这道锁从注册口绕开。放在建号之前查，被拉黑的设备
+//   连 Auth 用户都不会被创建。
 // =============================================================
 
 import { requireCaptchaSecret, verifyCaptcha } from '../_shared/captcha.ts';
@@ -46,6 +54,11 @@ const INVITE_MSG: Record<string, string> = {
 
 type StaffRow = { name: string };
 type ProfileRow = { id: string; username: string; staff_name: string | null };
+type BanRow = { device_hash: string };
+
+// 与 login 同一套规则：16~128 位字母/数字/下划线/连字符
+// （前端 auth-core.js 的 deviceId() 生成 24 字节 → 32 字符 base64url）
+const DEVICE_RE = /^[A-Za-z0-9_-]{16,128}$/;
 
 Deno.serve(async (req: Request) => {
   const origin = req.headers.get('origin');
@@ -111,11 +124,39 @@ Deno.serve(async (req: Request) => {
   const inv = normInvite(body.invite_code);
   if (!inv.ok) return json({ ok: false, code: 'BAD_INVITE', error: inv.error }, 400, origin);
 
+  // 设备标识：纯格式校验，不查库（查库放在下一步的 try 里）
+  const deviceId = typeof body.device_id === 'string' ? body.device_id : '';
+  if (!DEVICE_RE.test(deviceId)) {
+    return json(
+      { ok: false, code: 'BAD_DEVICE', error: '设备标识异常，请刷新页面后重试' },
+      400,
+      origin,
+    );
+  }
+
   const staffName = cleanText(body.staff_name, 40) || null;
   const applyNote = cleanText(body.apply_note, 200);
 
   try {
-    // ---------- 3. 账号名是否已被占用 ----------
+    // ---------- 3. 设备黑名单（离职封禁时被拉黑的机器，注册口也要拦）----------
+    const banned = await pgSelect<BanRow>(
+      `device_bans?device_hash=eq.${encodeURIComponent(deviceId)}` +
+        `&lifted_at=is.null&select=device_hash&limit=1`,
+    );
+    if (banned.length > 0) {
+      await pgInsert('audit_logs', {
+        action: 'register_blocked',
+        target: u.value,
+        detail: { device_hash: deviceId.slice(0, 12), reason: 'device_banned' },
+      }).catch((e) => console.error('audit failed:', e));
+      return json(
+        { ok: false, code: 'DEVICE_BANNED', error: '该设备已被禁用，请联系排班经理处理' },
+        400,
+        origin,
+      );
+    }
+
+    // ---------- 4. 账号名是否已被占用 ----------
     const dup = await pgSelect<ProfileRow>(
       `profiles?username=eq.${encodeURIComponent(u.value)}&select=id,username,staff_name`,
     );
@@ -123,7 +164,7 @@ Deno.serve(async (req: Request) => {
       return json({ ok: false, code: 'USERNAME_TAKEN', error: '这个账号名已经被用了' }, 400, origin);
     }
 
-    // ---------- 4. 员工名是否真实存在 / 是否已被别人认领 ----------
+    // ---------- 5. 员工名是否真实存在 / 是否已被别人认领 ----------
     if (staffName) {
       const staff = await pgSelect<StaffRow>(
         `staff?name=eq.${encodeURIComponent(staffName)}&select=name`,
@@ -147,7 +188,7 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    // ---------- 5. 邀请码预检（先别建号，省得白建再删）----------
+    // ---------- 6. 邀请码预检（先别建号，省得白建再删）----------
     const pre = await pgRpc<string>('check_invite', { p_code: inv.value });
     if (pre !== 'ok') {
       return json(
@@ -157,7 +198,7 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    // ---------- 6. 建 Auth 用户（邮箱=用户名@staff.smart-roster.local）----------
+    // ---------- 7. 建 Auth 用户（邮箱=用户名@staff.smart-roster.local）----------
     const email = pseudoEmail(u.value);
     let created: { id: string };
     try {
@@ -171,7 +212,7 @@ Deno.serve(async (req: Request) => {
       return json({ ok: false, code: 'CREATE_FAILED', error: '创建账号失败，请稍后再试' }, 500, origin);
     }
 
-    // ---------- 7. 写 profile（待审核）----------
+    // ---------- 8. 写 profile（待审核）----------
     // ⚠️ 必须早于 redeem_invite：invite_uses.profile_id 外键指向 profiles(id)
     try {
       await pgInsert('profiles', {
@@ -198,7 +239,7 @@ Deno.serve(async (req: Request) => {
       return json({ ok: false, code: 'CREATE_FAILED', error: '创建账号失败，请稍后再试' }, 500, origin);
     }
 
-    // ---------- 8. 邀请码原子占用（并发安全）；失败回滚 profile + Auth 账号 ----------
+    // ---------- 9. 邀请码原子占用（并发安全）；失败回滚 profile + Auth 账号 ----------
     const redeemed = await pgRpc<string>('redeem_invite', {
       p_code: inv.value,
       p_profile: created.id,
@@ -215,7 +256,7 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    // ---------- 9. 审计 ----------
+    // ---------- 10. 审计 ----------
     await pgInsert('audit_logs', {
       action: 'register',
       target: u.value,

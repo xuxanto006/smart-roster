@@ -50,11 +50,16 @@
   }
 
   /* ---------------- 网络层 ---------------- */
-  /* Edge Functions 全部走「简单请求」（Simple Request），刻意避开 CORS 预检：
-       - 不带 apikey / Authorization 等自定义头（这些函数用服务端密钥，不需要）
+  /* Edge Functions 默认都走「简单请求」（Simple Request），刻意避开 CORS 预检：
+       - 不带 apikey / Authorization 等自定义头（函数用服务端密钥，不需要）
        - POST 的 Content-Type 用 text/plain（application/json 会触发预检）
      Deno 的 req.json() 只解析 body，不看 Content-Type，所以服务端照常工作。
-     实测：2026-10 线上环境这样发可直达函数，省掉 OPTIONS 往返。 */
+     实测：2026-10 线上环境这样发可直达函数，省掉 OPTIONS 往返。
+
+     例外：函数在 Supabase 侧保留了「Verify JWT」时，网关会在函数执行前就要求
+     Authorization 头，否则直接 401（UNAUTHORIZED_NO_AUTH_HEADER），我们自己的
+     whoami 根本没机会跑。这类函数（目前是 ack）调用时传 opts.auth 即可：
+     代价是多一次 OPTIONS 预检，浏览器会把结果缓存 24 小时。 */
   function call(fn, opts) {
     var o = opts || {};
     var url = BASE + '/functions/v1/' + fn;
@@ -75,6 +80,8 @@
     } else {
       init.headers = {};
     }
+    /* 只有明确要过 Supabase 网关验签的函数才带这个头，其余保持「简单请求」 */
+    if (o.auth) init.headers.Authorization = 'Bearer ' + o.auth;
     if (ctrl) init.signal = ctrl.signal;
 
     return fetch(url, init).then(function (r) {

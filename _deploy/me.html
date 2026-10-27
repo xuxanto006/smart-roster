@@ -272,7 +272,13 @@
     S.busy = true;
     SR.ui.setLoading(btn, true);
 
-    SR.api.call('ack', { method: 'POST', body: { token: TOKEN, publish_id: S.cur } })
+    /* auth: 让请求带上 Authorization —— ack 函数在 Supabase 侧保留了「Verify JWT」，
+       不带这个头网关会先返回 401，函数体（含 whoami）根本不会执行。 */
+    SR.api.call('ack', {
+      method: 'POST',
+      auth: TOKEN,
+      body: { token: TOKEN, publish_id: S.cur }
+    })
       .then(function (res) {
         S.busy = false;
         SR.ui.setLoading(btn, false);

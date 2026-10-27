@@ -36,6 +36,11 @@
     <span class="sep"></span>
     <span class="save-state" id="saveState">载入中…</span>
     <button class="btn ghost sm" id="reload" type="button">刷新</button>
+    <select class="select" id="genEffort" title="生成质量：精细多花几秒换更好的班表">
+      <option value="quality">精细</option>
+      <option value="fast">快速</option>
+    </select>
+    <button class="btn plain" id="genBtn" type="button">生成本周</button>
     <button class="btn primary" id="publishBtn" type="button">发布本周</button>
   </div>
 
@@ -43,6 +48,8 @@
     <div class="seg" id="domSeg"></div>
     <input class="search" id="q" type="search" placeholder="搜索员工 / 岗位 / 模块" autocomplete="off">
   </div>
+
+  <p class="hint" id="genResult" hidden></p>
 
   <div class="legend">
     <span><i class="lg-early"></i>早班</span>
@@ -83,6 +90,7 @@
 </div>
 
 <script src="auth-core.js"></script>
+<script src="scheduler.js"></script>
 <script>
 (function () {
   'use strict';
@@ -191,7 +199,7 @@
     return Promise.all([
       SR.db.select('weeks', 'week_key=eq.' + week + '&select=week_key,status'),
       SR.db.select('staff', 'select=name,domain,module,position,level&active=is.true&order=domain.asc,name.asc'),
-      SR.db.select('shifts', 'week_key=eq.' + week + '&select=staff_name,day,slot,role'),
+      SR.db.select('shifts', 'week_key=eq.' + week + '&select=staff_name,day,slot,role,manual'),
       SR.db.select('publish_versions', 'week_key=eq.' + week + '&select=publish_id,version,published_at&order=version.desc&limit=1')
     ]).then(function (r) {
       var wk = r[0], st = r[1], sh = r[2], pv = r[3];
@@ -207,7 +215,9 @@
 
       if (sh.ok && sh.data) {
         sh.data.forEach(function (row) {
-          S.grid[row.staff_name + '|' + row.day] = { slot: row.slot || '', role: row.role || null };
+          S.grid[row.staff_name + '|' + row.day] = {
+            slot: row.slot || '', role: row.role || null, manual: !!row.manual
+          };
         });
       }
 
@@ -403,8 +413,9 @@
   });
 
   function setSlot(k, slot, btn, day) {
-    if (!S.grid[k]) S.grid[k] = { slot: '', role: null };
+    if (!S.grid[k]) S.grid[k] = { slot: '', role: null, manual: false };
     S.grid[k].slot = slot;
+    S.grid[k].manual = true;      /* 人工点过的格子 → shifts.manual（「轻触」契约落库） */
     S.dirty[k] = true;
 
     if (btn) {
@@ -440,7 +451,9 @@
           staff_name: parts[0],
           day: Number(parts[1]),
           slot: slot,
-          role: cell.role || null
+          role: cell.role || null,
+          /* 生成写回的格子是算法产出的，不该继承上一版的「手动」标记 */
+          manual: !!cell.manual
         });
       } else {
         del.push(parts);
@@ -479,6 +492,261 @@
       return true;
     });
   }
+
+  /* ---------------- 智能生成（算法文档 §8 一期） ----------------
+     做的事：读云端输入（规则阈值 / 请假 / 必上 / 固定班表 / 员工名单）→ 交给
+     scheduler.js 排班引擎（N1 预算用满 + N2 爬山）→ 结果写成 shifts 草稿。
+     设计要点：
+       · 一律**先生成再落草稿**：写进去的就是 dirty 格子，走同一条 flush() 保存链路，
+         不会出现「页面显示的」和「云端的」两套；
+       · 一个领域一次生成（引擎的 generateWeek 只认单领域），多领域时串行并让出主线程，
+         否则页面在生成期间会整段卡住、连进度都刷不出来；
+       · 有手改过的格子时会先确认：生成是**覆盖**，不是合并。 */
+  var SCHED = window.Scheduler || null;
+  var NEEDS_FIELD = {
+    hongmeng: 'needsHM', zunjie: 'needsZJ', aftersales: 'needsAS',
+    kufang: 'needsKF', admin: 'needsAD', manager: 'needsMgr'
+  };
+  var LIMITS_FIELD = {
+    hongmeng: 'limitsHM', zunjie: 'limitsZJ', aftersales: 'limitsAS',
+    kufang: 'limitsKF', admin: 'limitsAD', manager: 'limitsMgr'
+  };
+  var REST_FIELD = {
+    hongmeng: 'restMaxHM', zunjie: 'restMaxZJ', aftersales: 'restMaxAS',
+    kufang: 'restMaxKF', admin: 'restMaxAD', manager: 'restMaxMgr'
+  };
+  var SLOTS = { '早': 'early', '中': 'mid', '晚': 'night', '休': 'rest',
+                early: 'early', mid: 'mid', night: 'night', rest: 'rest' };
+
+  /* 生成一次的总耗时预算：单领域精细 ≈ 3s、快速 ≈ 1s；领域多时按数量摊薄，
+     免得「全部」一键下去要等半分钟。 */
+  var GEN_BUDGET = {
+    quality: { budgetMs: 2000, climbMs: 1000 },
+    fast: { budgetMs: 1600, climbMs: 0 }
+  };
+
+  function genNote(html) {
+    var el = $('#genResult');
+    if (!html) { el.hidden = true; el.innerHTML = ''; return; }
+    el.hidden = false;
+    el.innerHTML = html;
+  }
+
+  function setGenBusy(on, text) {
+    var btn = $('#genBtn');
+    btn.disabled = on || S.readonly;
+    if (on) btn.textContent = text || '生成中…';
+    else btn.textContent = '生成本周';
+    $('#genEffort').disabled = on;
+  }
+
+  /* 云端输入 → 引擎的 state。字段名与 scheduler.js 的 loadInput 一致。 */
+  function buildSchedState(rows) {
+    var ruleRows = rows[0].data || [], reqRows = rows[1].data || [],
+        allReqRows = rows[2].data || [], mustRows = rows[3].data || [],
+        fixedRows = rows[4].data || [];
+
+    var st = {
+      staff: [], staffProfiles: {}, staffDomain: {},
+      requests: [], mustWork: [],
+      schedule: {}, roles: {}, roleSig: {}, manual: {}
+    };
+    S.staff.forEach(function (p) {
+      st.staff.push(p.name);
+      st.staffProfiles[p.name] = {
+        module: p.module || '', position: p.position || '', level: p.level || '员工'
+      };
+      st.staffDomain[p.name] = p.domain;
+    });
+
+    var skip = [];
+    function addReq(row, isWeek) {
+      var name = row.staff_name, day = row.day;
+      /* 只认三种能落到规则表上的类型：请假→必须休息，必须上班→不排休息。
+         调班（swap）没有「换成哪个班」的字段，一期明确不支持，列出来让人手工改。 */
+      var type = row.type === 'leave' ? 'off' : row.type === 'must' ? 'work' : null;
+      if (!type) { skip.push(name + '（调班申请暂不支持自动排）'); return; }
+      if (day == null) {
+        /* 请假没写具体哪天 → 按整周请假处理；「必须上班」没写哪天是「哪天都行」，
+           引擎没有这种约束，直接跳过，避免凭空钉死 7 天。 */
+        if (type === 'off') {
+          for (var d = 0; d < 7; d++) st.requests.push(
+            { id: st.requests.length + 1, name: name, day: d, type: 'off', scope: 'always', weekKey: '' });
+        } else {
+          skip.push(name + '（必上未指定日期，已忽略）');
+        }
+        return;
+      }
+      st.requests.push({
+        id: st.requests.length + 1, name: name, day: Number(day), type: type,
+        scope: isWeek ? 'once' : 'always', weekKey: isWeek ? S.week : ''
+      });
+    }
+    reqRows.forEach(function (r) { addReq(r, true); });          /* 本周申请 */
+    allReqRows.forEach(function (r) { addReq(r, false); });      /* 常驻（week_key 为空） */
+
+    mustRows.forEach(function (m) {
+      if (m.day == null) { skip.push(m.staff_name + '（必上未指定日期，已忽略）'); return; }
+      st.mustWork.push({ name: m.staff_name, day: Number(m.day) });
+    });
+
+    /* 固定班表：pattern 是「整个领域」的底表，staff_name 非空则是逐人覆盖 */
+    var fixed = {};
+    fixedRows.forEach(function (f) {
+      if (!f.domain) return;
+      var arr = (f.pattern || []).map(function (v) { return SLOTS[v] || ''; });
+      if (arr.length !== 7) return;
+      if (!fixed[f.domain]) fixed[f.domain] = { pattern: null, roster: {} };
+      if (f.staff_name) fixed[f.domain].roster[f.staff_name] = arr;
+      else fixed[f.domain].pattern = arr;
+    });
+    st.fixedRoster = fixed;
+
+    /* 规则阈值：rules.config 里认 needs / limits / restMax / exactShifts / weekendEarlyMax。
+       没有配置的领域不写，让引擎用它自己的预设（与页面上「需求」面板显示的一致）。 */
+    ruleRows.forEach(function (r) {
+      var c = r.config || {}, dom = r.domain;
+      if (Array.isArray(c.needs) && c.needs.length === 7) {
+        st[NEEDS_FIELD[dom] || 'needs'] = c.needs;
+      }
+      if (c.limits && typeof c.limits === 'object') st[LIMITS_FIELD[dom] || 'limits'] = c.limits;
+      if (c.restMax && typeof c.restMax === 'object') st[REST_FIELD[dom] || 'restMax'] = c.restMax;
+      if (Array.isArray(c.exactShifts)) st.exactShifts = c.exactShifts;
+      if (typeof c.weekendEarlyMax === 'number') st.weekendEarlyMax = c.weekendEarlyMax;
+      if (c.groups && typeof c.groups === 'object') st.groups = c.groups;
+    });
+    return { state: st, skip: skip };
+  }
+
+  /* 这次要生成哪些领域：页面上选了具体领域就只生成它，选「全部」就逐领域都排 */
+  function targetDomains(st) {
+    if (S.domain !== '*') return [S.domain];
+    var have = {};
+    st.staff.forEach(function (n) { have[st.staffDomain[n]] = (have[st.staffDomain[n]] || 0) + 1; });
+    var out = [];
+    DOMAINS.forEach(function (d) { if (have[d[0]]) out.push(d[0]); });
+    return out;
+  }
+
+  /* 把引擎结果并进 S.grid，并标脏等 flush 落库 */
+  function mergeWeek(res) {
+    var grid = res.grid || {}, roles = res.roles || {}, n = 0;
+    Object.keys(grid).forEach(function (name) {
+      var row = grid[name] || [], roleRow = roles[name] || [];
+      for (var d = 0; d < 7; d++) {
+        var k = name + '|' + d;
+        var slot = row[d] || '';
+        if (SLOTS[slot] === undefined) slot = '';   /* 引擎只产出 early/mid/night/rest */
+        var role = roleRow[d] || null;
+        var cur = S.grid[k] || { slot: '', role: null, manual: false };
+        if (cur.slot === slot && (cur.role || null) === role) continue;
+        S.grid[k] = { slot: slot, role: role, manual: false };
+        S.dirty[k] = true;
+        n++;
+      }
+    });
+    return n;
+  }
+
+  function genRun() {
+    if (!SCHED) return SR.ui.toast('排班引擎没加载（scheduler.js 缺失）', 'bad');
+    if (S.readonly) return SR.ui.toast('只读账号不能生成', 'bad');
+
+    var existing = Object.keys(S.grid).filter(function (k) { return S.grid[k] && S.grid[k].slot; }).length;
+    if (existing && !confirm('本周已有 ' + existing + ' 格草稿，生成会整周覆盖，继续？')) return;
+
+    var effort = $('#genEffort').value === 'fast' ? 'fast' : 'quality';
+    var budget = GEN_BUDGET[effort];
+    setGenBusy(true, '准备中…');
+    genNote('');
+    setSave('正在读取排班输入…', '');
+
+    flush().then(function () {
+      return Promise.all([
+        SR.db.select('rules', 'select=domain,config'),
+        SR.db.select('requests', 'week_key=eq.' + S.week + '&status=eq.approved&select=staff_name,day,type'),
+        SR.db.select('requests', 'week_key=is.null&status=eq.approved&select=staff_name,day,type'),
+        SR.db.select('must_work', 'week_key=eq.' + S.week + '&select=staff_name,day'),
+        SR.db.select('fixed_roster', 'select=domain,staff_name,pattern')
+      ]);
+    }).then(function (rows) {
+      var bad = rows.filter(function (r) { return !r.ok; });
+      if (bad.length) {
+        if (bad[0].http === 401) { reauth(); return null; }
+        throw new Error('排班输入读取失败：' + (bad[0].error || ('HTTP ' + bad[0].http)));
+      }
+      var built = buildSchedState(rows);
+      var doms = targetDomains(built.state);
+      if (!doms.length) throw new Error('这个领域还没有可排班的员工，先到「人员管理」加人');
+      return genDomains(doms, built.state, effort, budget, built.skip);
+    }).catch(function (e) {
+      setSave('生成失败', 'bad');
+      var msg = String(e && e.message ? e.message : e);
+      genNote('生成失败：' + esc(msg));
+      SR.ui.toast(msg, 'bad');
+    }).then(function () {
+      setGenBusy(false);
+    });
+  }
+
+  /* 逐领域生成 + 每轮让出主线程（await sleep），保证进度能刷新出来 */
+  function genDomains(doms, st, effort, budget, skip) {
+    var out = [], i = 0;
+    function step() {
+      if (i >= doms.length) return Promise.resolve(out);
+      var dom = doms[i];
+      setSave('生成中 ' + (DOMAIN_LABEL[dom] || dom) + ' ' + (i + 1) + '/' + doms.length + '…', '');
+      setGenBusy(true, '生成中 ' + (i + 1) + '/' + doms.length);
+      return sleep(16).then(function () {
+        var t0 = Date.now();
+        var res = SCHED.generateWeek({
+          weekKey: S.week, domain: dom, effort: effort,
+          budgetMs: budget.budgetMs, climbMs: budget.climbMs,
+          input: { state: st }
+        });
+        var cells = mergeWeek(res);
+        out.push({ domain: dom, res: res, cells: cells, ms: Date.now() - t0 });
+        i++;
+        return step();
+      });
+    }
+    return step().then(function (list) {
+      renderSheet();
+      var total = 0, ms = 0, hard = 0, gaps = 0, score = 0, warn = [];
+      list.forEach(function (x) {
+        total += x.cells; ms += x.ms;
+        var s = (x.res && x.res.stats) || {};
+        hard += s.hard || 0;
+        gaps += s.gaps || 0;
+        score += s.score || 0;
+        (x.res && x.res.warnings || []).forEach(function (w) { warn.push(w); });
+      });
+      skip.forEach(function (s) { warn.push(s); });
+
+      /* 结果先落库，落库成功才敢说「已生成」—— 否则页面好看、云端是空的 */
+      return flush().then(function (ok) {
+        if (!ok) throw new Error('班表已生成，但写入云端失败（草稿仍留在页面上，可再点一次生成重试）');
+        setSave('草稿已同步', 'ok');
+        pubBadge();
+        var head = (DOMAIN_LABEL[S.domain] || '全部领域') + ' · ' +
+          (effort === 'quality' ? '精细' : '快速') + ' · ' +
+          total + ' 格改动 · ' + (ms / 1000).toFixed(1) + 's';
+        var body = '硬约束违约 ' + hard + ' 条 · 缺口 ' + gaps + ' 处 · 评分 ' + Math.round(score);
+        var tail = warn.length
+          ? '<br><span class="mute">需要人工确认 ' + warn.length + ' 条：' + esc(warn.slice(0, 6).join('；')) +
+            (warn.length > 6 ? ' …' : '') + '</span>'
+          : '';
+        genNote('<b>已生成</b> ' + esc(head) + '<br>' + esc(body) + tail);
+        SR.ui.toast('本周班表已生成 ' + total + ' 格', 'good');
+      });
+    });
+  }
+
+  function sleep(ms) {
+    return new Promise(function (res) { setTimeout(res, ms); });
+  }
+
+  $('#genBtn').addEventListener('click', genRun);
 
   /* ---------------- 周切换 ---------------- */
   function go(delta) {
@@ -636,7 +904,9 @@
 
     $('#hint').innerHTML = S.readonly
       ? '只读账号：可以查看全部班表，但不能修改或发布。'
-      : '改动会自动保存为草稿（员工看不到）；点「发布本周」后员工端才会显示。';
+      : '改动会自动保存为草稿（员工看不到）；「生成本周」按算法排一周草稿，点「发布本周」后员工端才会显示。';
+
+    setGenBusy(false);   /* 只读账号在这里被禁用 */
 
     load(ymd(mondayOf(new Date())));
   })();

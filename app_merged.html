@@ -3749,6 +3749,11 @@ function isKufang(name){ return getStaffProfile(name).module === KF_MODULE; }
 function isAdmin(name){ return getStaffProfile(name).module === AD_MODULE; }
 function isZunjie(name){ return getStaffProfile(name).module === ZJ_MODULE; }
 function inDomain(name, dom){
+  /* 名单迁库（算法文档 N16）：宿主给了 state.staffDomain（{姓名:领域}）就按它判，
+     不再靠模块名猜；没给（内嵌页面 / 旧存档 / 跑分基座）时回落到模块谓词，
+     行为与改造前完全一致。map 里查不到的人继续走谓词，避免「新加的人哪儿都不在」。 */
+  const map = state.staffDomain;
+  if(map && map[name]) return map[name] === dom;
   const d = DOMAINS.find(x=>x.key===dom);
   return d ? d.match(name) : false;
 }
@@ -3971,7 +3976,7 @@ function runBatch(){
       否则每周算法都从零开始，很可能连着几周都挑同一个人休息。
    ② 静默   —— 期间不弹toast、不做全量重渲染（见 BATCH.quiet）。
    ③ 回滚   —— 批量前拍快照，任何一周抛错就整体还原，不留半成品。 */
-function batchScheduleWeeks(weeks, dom){
+function batchScheduleWeeks(weeks, dom, opts){
   weeks = Math.max(2, Math.min(12, weeks|0 || 4));
   dom = dom || curDomain();
   if(BATCH.on){ toast("批量排班正在进行中"); return; }
@@ -4019,7 +4024,7 @@ function batchScheduleWeeks(weeks, dom){
       const must = state.mustWork;
       state.mustWork = [];
 
-      autoSchedule(dom);
+      autoSchedule(dom, opts);
 
       state.mustWork = must;
       const w = state.schedule[keys[i]];
@@ -4052,8 +4057,23 @@ function batchScheduleWeeks(weeks, dom){
         filled + " 个" + (hasFixed ? "固定班" : "班次") + "。切到下一周即可查看");
 }
 
-function autoSchedule(dom){
+function autoSchedule(dom, opts){
   dom = dom || curDomain();
+  /* ---- 质量档位（算法文档 N1 / N2）----
+     页面上的「一键智能排班」走默认档（fast）：攒够 MIN_POOL 且遇到合格解就收工，
+     保证点一下就有响应。云端 / 批量生成走 quality 档：
+       · N1 预算用满 —— 不再「合格就早退」，让候选池一直涨到时间预算用尽，
+         最后取 planScore 最优的那个（把「合格」与「选优」彻底解耦）；
+       · N2 局部搜索 —— 对选中的班表再跑一轮「评分不降」的爬山，
+         用现成的邻域动作（早班均衡 / 晚班均衡 / 上一休一对调）把均衡度再压一压。
+     不传 opts 时行为与改造前**逐字节一致**（fast + 1600ms + 不爬山），
+     这是「页面按钮不受影响」的保证，也是差分测试的基线。 */
+  opts = opts || {};
+  const fillBudget = !!opts.fillBudget;
+  const budgetMs = (opts.budgetMs === undefined || opts.budgetMs === null)
+    ? (fillBudget ? 2000 : 1600) : Math.max(0, +opts.budgetMs || 0);
+  const climbMs = (opts.climbMs === undefined || opts.climbMs === null)
+    ? (fillBudget ? 1000 : 0) : Math.max(0, +opts.climbMs || 0);
   /* 「行政」有固定班表（fixedRoster）—— 周表写死即可，不需要算法参与，
      所以即使可排班人数不足 2 也要放行，否则固定班表永远落不了地。
      「库房」没有固定班表且全员免排，仍按人数不足拦住。 */
@@ -4230,8 +4250,15 @@ function autoSchedule(dom){
      实测单领域排班会到 4.5 秒 —— 点一次按钮干等十几秒，不可接受。
      收到 900ms：单领域最坏 0.9 秒、四个领域最坏约 3.6 秒，且 MIN_POOL=24 之下
      绝大多数配置会在 300~500ms 就跑满池子提前退出，实际上很少触到这条线。 */
-  const deadline = Date.now() + 1600;
-  for(let attempt=0; attempt<300; attempt++){
+  const deadline = Date.now() + budgetMs;
+  /* 收工口径分两档（算法文档 N1「时间预算用满」）：
+     · fast（页面「一键智能排班」）—— 攒够 MIN_POOL 后遇到合格解就走，点了马上有反应；
+     · quality（云端生成 / 批量）—— 不早退，一直跑到预算用尽，再从全部候选里挑最优。
+       这样做是把「合格」与「选优」解耦：合格只代表不违规，质量还得靠在更多候选里比。
+     候选上限跟着档位走：fast 300 次（历史值，够用且不会卡）；quality 放宽到 1200，
+     真正约束它的是时间预算，次数上限只作为「预算极大时也不会失控」的保险。 */
+  const MAX_ATTEMPTS = fillBudget ? 1200 : 300;
+  for(let attempt=0; attempt<MAX_ATTEMPTS; attempt++){
     const plan = tryPlan(slots, N, R);
     if(plan){
       // 先把富余人力吸收掉再评分：少上一天班的人界面上那天就是休息日，
@@ -4283,11 +4310,15 @@ function autoSchedule(dom){
       // + 孤立休息日（上一休一）为 0 + 分组保障（早晚保障组 / 开店闭店组 / 周末早班上限）全部达标
       // 但必须先攒够 MIN_POOL 个候选：合格只代表「不违规」，均衡度还要靠在多个合格方案里比评分。
       // 少了这一句，第一个合格方案（常常是第 1 个）就收工，早/晚班分配会明显忽多忽少。
-      if(attempt >= MIN_POOL && gapNow === 0 && wd5 && noNE && rulesOK && badNow === 0) break;
+      // quality 档（fillBudget）不认这两条早退：合格就退等于把候选池锁死在「第一个合格解」，
+      // 而 N1 要的正是「继续跑到预算用尽再比评分」。
+      if(!fillBudget && attempt >= MIN_POOL && gapNow === 0 && wd5 && noNE && rulesOK && badNow === 0) break;
       // 已选出的最优方案已经「不缺班 + 分组保障全达标 + 无上一休一 + 全员上满天数」就收工，不必跑满 300 次
-      if(attempt >= MIN_POOL + 25 && bestGap === 0 && bestBad === 0 && bestShort === 0) break;
-      // 兜底：不可行配置（人力不够等）永远等不到上面那一行，用耗时上限收工，别让用户干等
-      if(attempt >= MIN_POOL && Date.now() > deadline) break;
+      if(!fillBudget && attempt >= MIN_POOL + 25 && bestGap === 0 && bestBad === 0 && bestShort === 0) break;
+      /* 兜底收工：不可行配置（人力不够等）永远等不到上面那两行，用耗时上限收工，别让用户干等。
+         fast 档要攒够 MIN_POOL 才认这条（否则开局几个候选就超时退出，池子太浅）；
+         quality 档按预算收工 —— 这就是它唯一的出口。 */
+      if(Date.now() > deadline && (fillBudget || attempt >= MIN_POOL)) break;
     }
   }
   if(!best){
@@ -4395,7 +4426,27 @@ function autoSchedule(dom){
   // best 排在最前（本来就是最优），其余候选按生成顺序作为备选
   const cands = [best].concat(allPlans.filter(x=> x !== best));
   let w = materialize(best);
-  if(!hardOK(w)){
+  if(fillBudget){
+    /* quality 档：不只落一张表，而是把候选池里最靠前的若干张都落成班表，再按
+       **最终班表**的选优口径挑最好的那张。为什么必须这么做：
+       贪心用的 planScore 是在「plan」上算的近似分 —— 落表还要过
+       fillGaps / absorbSurplus / 一串修复器，plan 上的第一名未必是最终班表的第一名
+       （实测有种子会翻盘）。用近似分选优 = 用有噪声的尺子量身高，
+       种子一换结果就飘；换成最终口径选，输出才对同一份配置稳定。
+       代价：materialize 单次约 50ms，所以只验最靠前的 8 张（够用且可控）。 */
+    const VERIFY_K = 8;
+    const tVerify = Date.now();
+    let bw = null, bg = null, bh = false;
+    for(let i = 0; i < cands.length && i < VERIFY_K; i++){
+      const w2 = materialize(cands[i]);
+      const okHard = hardOK(w2);
+      const g = weekGrade(w2, RByName, demandNeed, demandKeys, workDaysPerPerson);
+      const better2 = !bw || (okHard && !bh) || (okHard === bh && gradeCmp(g, bg) < 0);
+      if(better2){ bw = w2; bg = g; bh = okHard; }
+      if(Date.now() - tVerify > climbMs) break;   // 落表验证与爬山共用同一笔收尾预算
+    }
+    w = bw;
+  } else if(!hardOK(w)){
     /* 最优方案不达标就换次优候选重试。两个约束缺一不可：
          · 次数上限 12 —— 实测绝大多数情况下第一次就过，重试是罕见路径
          · 时间预算 600ms —— materialize 单次约 15~25ms，无脑试完 40 个候选
@@ -4411,6 +4462,36 @@ function autoSchedule(dom){
       if(hardOK(w2)){ w = w2; break; }
       const el = ((typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now()) - t0;
       if(el > RETRY_BUDGET_MS) break;
+    }
+  }
+  /* ---- N2 局部搜索（爬山）----
+     贪心 + 收尾修复给的是一个「随机路径上的可行解」，路径本身没被优化过。
+     这里在它周围做一次爬山：邻域动作用现成的三个修复器（它们本来就是
+     「只在更均衡时才真的改格子」的确定性操作，见各自函数注释）：
+       · balanceShifts       —— 早班次数在两人之间对调（连带看间隔节奏）
+       · balanceNightShifts  —— 晚班一侧同样对调（只平早班会让晚班越来越散）
+       · fixIsolatedRest     —— 对调休息日，消掉「上一休一」
+     接受准则：用**同一个选优口径**（缺班 → 请假违约 → 硬约束 → 少上班天数 → 评分）
+     比大小，必须严格变好才接受 —— 于是「评分不降」天然成立（末位就是评分），
+     而且严格变好保证了爬山一定会停，不会在等价解之间来回打转。
+     只在 quality 档跑：fast 档的目标是「点一下马上有反应」，多这几百毫秒不值。 */
+  if(fillBudget && climbMs > 0){
+    const tClimb = Date.now();
+    let curKeyGrade = weekGrade(w, RByName, demandNeed, demandKeys, workDaysPerPerson);
+    for(let round=0; round<8; round++){
+      if(Date.now() - tClimb > climbMs) break;
+      let improved = false;
+      for(const move of CLIMB_MOVES){
+        if(Date.now() - tClimb > climbMs) break;
+        const cand = cloneWeek(w);
+        move(cand, RByName, k);
+        if(sameWeek(cand, w)) continue;                       // 这一手没改动任何格子，跳过
+        const g = weekGrade(cand, RByName, demandNeed, demandKeys, workDaysPerPerson);
+        if(gradeCmp(g, curKeyGrade) < 0){                     // 严格更优才接受
+          w = cand; curKeyGrade = g; improved = true;
+        }
+      }
+      if(!improved) break;                                    // 一整轮都没有改善 → 已到局部最优
     }
   }
   /* 固定班表在最后落地：算法排完、收尾修复也跑完了，此刻写死才算真的「不被算法影响」。
@@ -5368,6 +5449,76 @@ function planScore(plan){
          - nightEarly*30 - ruleViol*60 - isoRest*20 - groupViol*45
          - run3Bad*50 - modViol*60 - floorBad*55;
 }
+
+/* ================= 局部搜索（N2）用的三个小工具 =================
+   为什么单独抽出来：贪心选优看的是「plan（{assign, restDays, slots, R}）」，
+   而修复器操作的是「week（姓名 → 7 天班次）」。局部搜索必须在两套表示之间来回换算，
+   且换算口径要和贪心**完全一致**，否则就会出现「爬山觉得更好、选优觉得更差」的内耗。 */
+/* 把一张周表换算成 plan（只认本领域当前可排班的人 + 本领域需求） */
+function planOfWeek(week, R){
+  const assign = [], restDays = [], RArr = [];
+  state.staff.forEach(n=>{
+    const row = week[n] || [];
+    const list = [];
+    const rest = new Set([0,1,2,3,4,5,6]);
+    for(let d=0; d<7; d++){
+      const v = row[d] || "";
+      if(v === "early" || v === "mid" || v === "night"){ list.push({day:d, shift:v}); rest.delete(d); }
+    }
+    assign.push(list);
+    restDays.push(rest);
+    RArr.push(R ? R[n] : null);
+  });
+  const slots = [];
+  state.needs.forEach((d, di)=>{
+    ["early","mid","night"].forEach(sh=>{
+      for(let i=0; i<(+d[sh]||0); i++) slots.push({day:di, shift:sh});
+    });
+  });
+  return {assign, restDays, slots, R:RArr};
+}
+/* 一张周表的「选优口径」评分：与 autoSchedule 里那句 `better` 完全同构（越小越好）。
+   末位放 -planScore：前面几项都一样时，才轮到比均衡度。 */
+function weekGrade(week, R, demandNeed, demandKeys, workDaysPerPerson){
+  const plan = planOfWeek(week, R);
+  const have = {};
+  plan.assign.forEach(a=> a.forEach(x=>{ const kk = x.day+"|"+x.shift; have[kk] = (have[kk]||0)+1; }));
+  let gap = 0;
+  demandKeys.forEach(kk=>{ gap += Math.max(0, demandNeed[kk] - (have[kk]||0)); });
+  const ruleBad = planRuleViol(plan, plan.R);
+  const bad = planIsoRest(plan) + planGroupViol(plan) + planRun3Rest(plan, plan.R)
+            + planModuleViol(plan) + planRestFloorViol(plan, plan.R);
+  const shortWork = plan.assign.reduce((s,a)=> s + Math.max(0, workDaysPerPerson - a.length), 0);
+  return [gap, ruleBad, bad, shortWork, -planScore(plan)];
+}
+/* 字典序比较：-1 = a 更优，0 = 等价，1 = a 更差 */
+function gradeCmp(a, b){
+  for(let i=0; i<a.length; i++) if(a[i] !== b[i]) return a[i] < b[i] ? -1 : 1;
+  return 0;
+}
+/* 周表深拷贝 / 相等判定：爬山每次都要在副本上试算，改坏了再丢 */
+function cloneWeek(week){
+  const out = {};
+  Object.keys(week).forEach(n=>{ out[n] = week[n].slice(); });
+  return out;
+}
+function sameWeek(a, b){
+  const ka = Object.keys(a);
+  if(ka.length !== Object.keys(b).length) return false;
+  for(let i=0; i<ka.length; i++){
+    const ra = a[ka[i]], rb = b[ka[i]];
+    if(!rb || rb.length !== ra.length) return false;
+    for(let d=0; d<ra.length; d++) if(ra[d] !== rb[d]) return false;
+  }
+  return true;
+}
+/* 邻域动作：三个现成修复器 —— 它们内部只在「真的更均衡」时才改格子，
+   所以对它们包一层接受判定，等价于「只走下降方向」的爬山。 */
+const CLIMB_MOVES = [
+  (week, R, k)=> balanceShifts(week, R, k),
+  (week, R, k)=> balanceNightShifts(week, R, k),
+  (week, R)=> fixIsolatedRest(week, R)
+];
 
 /* ---------- 复制上周 / 清空 ---------- */
 function clearWeek(){

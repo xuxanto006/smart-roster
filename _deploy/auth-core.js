@@ -417,7 +417,12 @@
   };
 
   document.addEventListener('DOMContentLoaded', function () {
+    /* 只挂「点击涟漪」。液态光斑（mountLiquidDot）不再默认开启：
+       它把光斑 div append 到 body 并每帧改 transform，而 body 里的元素 transform
+       会被计入「可滚动溢出范围」，于是鼠标一动 scrollHeight 就跟着变大
+       → 竖向滚动条反复出现/消失 → 整页左右抖 15px。
+       实测：1280×800 下鼠标下移时 body.scrollHeight 在 763 → 1089 之间跳动。
+       需要它的页面可以显式调用 SR.ui.liquidDot()，且 .liquid-dot 已改为 position: fixed。 */
     mountRipple();
-    mountLiquidDot();
   });
 })();

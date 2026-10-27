@@ -871,6 +871,30 @@ a:hover { text-decoration: underline; }
   78% { transform: translateX(3px); }
 }
 
+/* ---------------- 运行时注入元素（必须脱离文档流） ----------------
+   auth-core.js 会往 body 里插 .liquid-dot（液态光斑）/ .confetti（撒花）。
+   这类元素一旦留在普通流里，它每帧变化的 transform 会被算进页面的
+   「可滚动溢出范围」→ body.scrollHeight 跟着鼠标位置变大变小 →
+   竖向滚动条反复出现/消失 → 整页左右抖 15px（手机上滚动条悬浮，所以看不出来）。
+   统一钉成 position: fixed，彻底不参与布局与滚动溢出。 */
+.liquid-dot {
+  position: fixed;
+  left: 0;
+  top: 0;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.confetti {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+  z-index: 95;
+}
+
 /* ---------------- 响应式 ---------------- */
 @media (max-width: 560px) {
   .page { padding: 34px 16px 30px; }

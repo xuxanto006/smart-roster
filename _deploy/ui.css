@@ -57,7 +57,17 @@
 
 * { box-sizing: border-box; }
 
-html { -webkit-text-size-adjust: 100%; }
+/* 桌面端滚动条占位固定：
+   否则会出现「内容变高 → 出现滚动条 → 可用宽度少 15px → 内容换行变更高 →
+   滚动条消失 → 又变矮 → 再出现」的无限抖动（手机上滚动条悬浮、不占宽度，所以没这个问题） */
+html {
+  -webkit-text-size-adjust: 100%;
+  scrollbar-gutter: stable;
+}
+
+@supports not (scrollbar-gutter: stable) {
+  html { overflow-y: scroll; }
+}
 
 body {
   margin: 0;
@@ -1092,6 +1102,27 @@ table.grid { border-collapse: separate; border-spacing: 0; width: 100%; min-widt
 }
 
 .grid tfoot td.who { z-index: 3; text-align: left; border-right: 1px solid var(--line); }
+
+/* ---------------- 桌面端：滚动条槽位固定 ----------------
+   手机上的滚动条是「悬浮」的，不占宽度；电脑上的滚动条要占约 15px。
+   只要宽度是可变的，就可能出现下面这个循环：
+     出现滚动条 → 可用宽度少 15px → 表头/图例/工具栏换行 → 内容变高 →
+     页面又刚好不需要滚动条 → 宽度恢复 → 内容变矮 → 再需要滚动条 …
+   在相邻帧之间来回切换时，看起来就是整页疯狂抖动。
+   把槽位（gutter）常驻，宽度恒为「100% - 15px」，布局不再回流。 */
+@media (min-width: 721px) {
+  html { scrollbar-gutter: stable; }
+
+  /* 表格自己的滚动容器同理：否则固定列 + sticky 表头宽度会在滚动时逐帧变化 */
+  .sheet-wrap { scrollbar-gutter: stable; }
+}
+
+/* 不支持 scrollbar-gutter 的旧浏览器：退回「滚动条常驻」，效果等价（只是多一条槽） */
+@supports not (scrollbar-gutter: stable) {
+  @media (min-width: 721px) {
+    .sheet-wrap { overflow-y: scroll; }
+  }
+}
 
 @media (max-width: 720px) {
   .wb { padding: 16px 12px 30px; }

@@ -367,6 +367,54 @@ if (/expires_at\s*=\s*Date\.now\(\)\s*\+\s*365/.test(core) || /keep_until\s*=\s*
   say('  [OK]   auth-core: 记住登录靠 refresh_token 续期，不是改本地过期时间');
 }
 
+// ---------- 4h. 导入到手机日历（.ics） ----------
+say('\n== 4h. calendar import ==');
+const calNeed = [
+  ['me: 早/中/晚一/晚二 四套时间', "night2: { label: '晚二班', start: '13:30', end: '22:30' }"],
+  ['me: 周五/周六的晚班按晚二', 'return (d === 4 || d === 5) ? CAL_TIMES.night2 : CAL_TIMES.night;'],
+  ['me: 休息 / 未排 / 未知班次不进日历', "if (!slot || slot === 'rest') return null;"],
+  ['me: ics 用 UTC 时刻（不依赖时区库）', "cal2(d.getUTCHours()) + cal2(d.getUTCMinutes()) + '00Z'"],
+  ['me: ics 按字节折行（中文 3 字节）', 'function calBytes(s)'],
+  ['me: UID 稳定（重复导入不重复建）', "'@smart-roster'"],
+  ['me: 上班前 30 分钟提醒', "'TRIGGER:-PT30M'"],
+  ['me: 优先走系统分享面板（iOS/鸿蒙/安卓）', 'navigator.canShare({ files: [file] })'],
+  ['me: 分享不可用则下载 .ics', 'a.download = name'],
+  ['me: 再兜底复制日程文本', 'navigator.clipboard.writeText'],
+  ['me: 有「导入到日历」按钮', 'id="calShare"'],
+  ['me: 分享没日历时可「存成 .ics」', 'id="calSave"'],
+  ['me: 有「复制日程」按钮', 'id="calCopy"'],
+  ['me: 日历卡真的挂进渲染', 'h += calCardHtml();'],
+];
+for (const [label, needle] of calNeed) {
+  if (me.includes(needle)) say(`  [OK]   ${label}`);
+  else { problems++; say(`  [FAIL] ${label}: "${needle}" not found`); }
+}
+
+// 导出纯函数块必须真的能抽出来跑单测（不掺 DOM / 网络 / 会话）
+const calStart = me.indexOf('/* ===== CAL-BLOCK-START ===== */');
+const calEnd = me.indexOf('/* ===== CAL-BLOCK-END ===== */');
+if (calStart < 0 || calEnd <= calStart) {
+  problems++;
+  say('  [FAIL] me.html: 缺少 CAL-BLOCK 标记（tools/test_me_calendar.mjs 靠它抽源码）');
+} else {
+  const calBlock = me.slice(calStart, calEnd);
+  const dirty = ['document.', 'navigator.', 'SR.', 'location.', 'localStorage'].filter((x) => calBlock.includes(x));
+  if (dirty.length) {
+    problems++;
+    say(`  [FAIL] me.html: CAL-BLOCK 里不该有 ${dirty.join(' / ')}（纯函数才能单测）`);
+  } else {
+    say('  [OK]   me.html: CAL-BLOCK 是纯函数块（无 DOM / 网络 / 会话）');
+  }
+}
+
+// 员工端仍然全程只读：导入日历不该产生任何写库请求
+if (/SR\.db\.(upsert|insert|patch|del)/.test(me)) {
+  problems++;
+  say('  [FAIL] me.html: 导入日历引入了写库操作（员工端必须只读）');
+} else {
+  say('  [OK]   me.html: 导入日历不需要写库（纯前端生成 .ics）');
+}
+
 // ---------- 5. 体积 ----------
 say('\n== 5. sizes ==');
 for (const f of [...cssFiles, 'auth-core.js', ...files]) {

@@ -239,11 +239,281 @@
       '</div></div>';
 
     h += ackHtml();
+    h += calCardHtml();
 
     $('#body').innerHTML = h;
 
     var ab = $('#ackBtn');
     if (ab) ab.addEventListener('click', ack);
+    var cs = $('#calShare');
+    if (cs) cs.addEventListener('click', exportCalendar);
+    var cv = $('#calSave');
+    if (cv) cv.addEventListener('click', saveCalendar);
+    var cc = $('#calCopy');
+    if (cc) cc.addEventListener('click', copyCalendar);
+  }
+
+  /* ============================================================
+     导入到手机日历（.ics）
+     ------------------------------------------------------------
+     店里现行班次时间：
+       早班 09:30–18:30 · 中班 12:00–21:00
+       晚一 13:00–22:00 · 晚二 13:30–22:30
+     周五、周六的晚班按「晚二」，其余日子按「晚一」（库里只有 night 一个值，
+     所以这条规则放在导出时判，不改数据模型）。
+     跨平台只靠一份 .ics：iOS / 鸿蒙 / 安卓都能「点开即导入」。
+     ⚠ CAL-BLOCK 里必须是纯函数（不碰 DOM / 网络），
+       tools/test_me_calendar.mjs 会原样抽出来跑单测。
+     ============================================================ */
+  /* ===== CAL-BLOCK-START ===== */
+  var CAL_TIMES = {
+    early:  { label: '早班',   start: '09:30', end: '18:30' },
+    mid:    { label: '中班',   start: '12:00', end: '21:00' },
+    night:  { label: '晚一班', start: '13:00', end: '22:00' },
+    night2: { label: '晚二班', start: '13:30', end: '22:30' }
+  };
+  var CAL_DAYS = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
+  var CAL_TZ_OFFSET = 8;   /* 深圳固定 UTC+8（无夏令时）：ics 里直接写 UTC，不依赖时区库 */
+
+  function cal2(n) { return (n < 10 ? '0' : '') + n; }
+
+  /* 周五(day 4)、周六(day 5) 的晚班 = 晚二，其余日子 = 晚一 */
+  function calShift(slot, day) {
+    if (!slot || slot === 'rest') return null;
+    if (slot === 'night') {
+      var d = Number(day);
+      return (d === 4 || d === 5) ? CAL_TIMES.night2 : CAL_TIMES.night;
+    }
+    return CAL_TIMES[slot] || null;
+  }
+
+  /* 'YYYY-MM-DD' + 'HH:MM'（店里本地时间）→ ics 的 UTC 时刻 */
+  function calStamp(dateStr, hhmm) {
+    var p = String(dateStr).split('-').map(Number);
+    var t = String(hhmm).split(':').map(Number);
+    var d = new Date(Date.UTC(p[0], p[1] - 1, p[2], t[0] - CAL_TZ_OFFSET, t[1]));
+    return '' + d.getUTCFullYear() + cal2(d.getUTCMonth() + 1) + cal2(d.getUTCDate()) +
+      'T' + cal2(d.getUTCHours()) + cal2(d.getUTCMinutes()) + '00Z';
+  }
+
+  function calNow() {
+    var d = new Date();
+    return '' + d.getUTCFullYear() + cal2(d.getUTCMonth() + 1) + cal2(d.getUTCDate()) +
+      'T' + cal2(d.getUTCHours()) + cal2(d.getUTCMinutes()) + cal2(d.getUTCSeconds()) + 'Z';
+  }
+
+  /* 周一日期 + 第几天 = 那天的 YYYY-MM-DD（用 UTC 算，躲开本机时区/夏令时） */
+  function calDateOf(week, day) {
+    var p = String(week).split('-').map(Number);
+    var d = new Date(Date.UTC(p[0], p[1] - 1, p[2] + Number(day)));
+    return d.getUTCFullYear() + '-' + cal2(d.getUTCMonth() + 1) + '-' + cal2(d.getUTCDate());
+  }
+
+  /* ics 规定每行 ≤75 字节；中文一字 3 字节，所以按字节折行（续行以空格开头） */
+  function calBytes(s) {
+    var n = 0;
+    for (var i = 0; i < s.length; i++) {
+      var c = s.charCodeAt(i);
+      if (c < 0x80) n += 1;
+      else if (c < 0x800) n += 2;
+      else if (c < 0xd800 || c > 0xdfff) n += 3;
+      else { n += 4; i++; }
+    }
+    return n;
+  }
+
+  function calFold(line) {
+    if (calBytes(line) <= 73) return line;
+    var out = [], cur = '', used = 0;
+    for (var i = 0; i < line.length; i++) {
+      var ch = line.charAt(i), w = calBytes(ch);
+      if (used + w > 73) { out.push(cur); cur = ' '; used = 1; }
+      cur += ch;
+      used += w;
+    }
+    out.push(cur);
+    return out.join('\r\n');
+  }
+
+  /* 这一周真正要进日历的班（休息 / 未排 / 未知班次都跳过） */
+  function calItems(rows, week) {
+    var list = [];
+    (rows || []).forEach(function (r) {
+      var day = Number(r && r.day);
+      var t = calShift(r && r.slot, day);
+      if (!t) return;
+      var date = calDateOf(week, day);
+      list.push({
+        day: day, date: date, slot: r.slot,
+        label: t.label, start: t.start, end: t.end,
+        role: r.role || '',
+        startAt: calStamp(date, t.start),
+        endAt: calStamp(date, t.end)
+      });
+    });
+    list.sort(function (a, b) { return a.day - b.day; });
+    return list;
+  }
+
+  /* 一行预览文案：周一 10/26 早班 09:30–18:30 */
+  function calLine(it) {
+    return CAL_DAYS[it.day] + ' ' + it.date.slice(5).replace('-', '/') + ' ' +
+      it.label + ' ' + it.start + '–' + it.end;
+  }
+
+  /* 复制用的纯文本（剪贴板 / 不支持导入时的兜底） */
+  function plainCalendar(rows, week) {
+    return calItems(rows, week).map(calLine).join('\n');
+  }
+
+  function icsName(week) { return 'roster-' + String(week) + '.ics'; }
+
+  function buildIcs(rows, week, owner) {
+    var items = calItems(rows, week);
+    var who = String(owner || 'me').replace(/[^A-Za-z0-9_-]/g, '') || 'me';
+    var stamp = calNow();
+    var lines = [
+      'BEGIN:VCALENDAR',
+      'VERSION:2.0',
+      'PRODID:-//Smart Roster//Calendar Export//CN',
+      'CALSCALE:GREGORIAN',
+      'METHOD:PUBLISH',
+      'X-WR-CALNAME:我的班表',
+      'X-WR-TIMEZONE:Asia/Shanghai'
+    ];
+    items.forEach(function (it) {
+      var desc = '我的班表 · ' + calLine(it) +
+        (it.role === 'open' ? ' · 开店' : (it.role === 'close' ? ' · 闭店' : ''));
+      lines.push('BEGIN:VEVENT');
+      /* UID 稳定（同一个人 + 同一天 + 同一个班），重复导入不会变成两条 */
+      lines.push('UID:' + who + '-' + it.date + '-' + it.day + '@smart-roster');
+      lines.push('DTSTAMP:' + stamp);
+      lines.push('DTSTART:' + it.startAt);
+      lines.push('DTEND:' + it.endAt);
+      lines.push('SUMMARY:' + it.label);
+      lines.push('LOCATION:深圳卓悦中心');
+      lines.push('DESCRIPTION:' + desc);
+      lines.push('STATUS:CONFIRMED');
+      lines.push('TRANSP:OPAQUE');
+      lines.push('BEGIN:VALARM');
+      lines.push('TRIGGER:-PT30M');
+      lines.push('ACTION:DISPLAY');
+      lines.push('DESCRIPTION:上班提醒');
+      lines.push('END:VALARM');
+      lines.push('END:VEVENT');
+    });
+    lines.push('END:VCALENDAR');
+    return lines.map(calFold).join('\r\n') + '\r\n';
+  }
+  /* ===== CAL-BLOCK-END ===== */
+
+  function calCardHtml() {
+    var items = calItems(S.rows, S.week);
+    if (!items.length) return '';
+    return '<div class="calbar" id="calBar">' +
+      '<div class="cal-main"><b>导入到手机日历</b>' +
+      '<span>iOS / 鸿蒙 / 安卓通用：点「导入到日历」，在系统面板里选「日历」；' +
+      '面板里没有日历，就点「存成 .ics」再用文件/日历 App 打开。</span>' +
+      '<div class="cal-list">' +
+      items.map(function (it) { return '<span>' + esc(calLine(it)) + '</span>'; }).join('') +
+      '</div></div>' +
+      '<div class="cal-acts">' +
+      '<button class="btn primary sm" id="calShare" type="button">导入到日历</button>' +
+      '<button class="btn ghost sm" id="calSave" type="button">存成 .ics</button>' +
+      '<button class="btn ghost sm" id="calCopy" type="button">复制日程</button>' +
+      '</div></div>';
+  }
+
+  function calDownload(text, name) {
+    try {
+      var blob = new Blob([text], { type: 'text/calendar;charset=utf-8' });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = url;
+      a.download = name;
+      a.rel = 'noopener';
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(function () {
+        try { URL.revokeObjectURL(url); a.remove(); } catch (e) {}
+      }, 1500);
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /* 直接把 .ics 存到手机（分享面板里没有「日历」时的稳妥路子） */
+  function saveCalendar() {
+    var items = calItems(S.rows, S.week);
+    if (!items.length) { SR.ui.toast('这一周没有需要导入的班次', 'info'); return; }
+    if (calDownload(buildIcs(S.rows, S.week, ME.username), icsName(S.week))) {
+      SR.ui.toast('已存成 ' + icsName(S.week) + '：iPhone 到「文件」里点开，安卓/鸿蒙在下载里点开', 'info');
+    } else {
+      SR.ui.toast('这个浏览器不支持下载，试试「复制日程」手动加', 'bad');
+    }
+  }
+
+  /* 主路径：系统分享面板（iOS / 鸿蒙 / 安卓都能把 .ics 交给「日历」App）
+     分享不可用 → 下载 .ics → 再不行还有「复制日程」手动录入 */
+  function exportCalendar() {
+    var items = calItems(S.rows, S.week);
+    if (!items.length) { SR.ui.toast('这一周没有需要导入的班次', 'info'); return; }
+
+    var ics = buildIcs(S.rows, S.week, ME.username);
+    var name = icsName(S.week);
+    var file = null;
+    try { file = new File([ics], name, { type: 'text/calendar' }); } catch (e) { file = null; }
+
+    if (file && navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+      navigator.share({ files: [file], title: '我的班表 ' + rangeText(S.week) })
+        .then(function () {
+          SR.ui.toast('已交给系统：在面板里选「日历」就加进去了', 'good');
+        })
+        .catch(function (err) {
+          if (err && err.name === 'AbortError') return;
+          if (calDownload(ics, name)) SR.ui.toast('已下载 .ics，点开它就能加入日历', 'info');
+          else SR.ui.toast('这个浏览器不支持导入，试试「复制日程」', 'bad');
+        });
+      return;
+    }
+
+    if (calDownload(ics, name)) {
+      SR.ui.toast('已下载 .ics：iPhone 到「文件」里点开，安卓/鸿蒙在下载通知里点开', 'info');
+    } else {
+      SR.ui.toast('这个浏览器不支持下载，试试「复制日程」手动加', 'bad');
+    }
+  }
+
+  function legacyCopy(text) {
+    try {
+      var ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.top = '-1000px';
+      ta.setAttribute('readonly', '');
+      document.body.appendChild(ta);
+      ta.select();
+      var ok = document.execCommand('copy');
+      ta.remove();
+      return !!ok;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function copyCalendar() {
+    var text = plainCalendar(S.rows, S.week);
+    if (!text) { SR.ui.toast('这一周没有需要导入的班次', 'info'); return; }
+    var done = function () { SR.ui.toast('已复制本周班次，粘贴到日历 App 的备注里即可', 'good'); };
+    var bad = function () { SR.ui.toast('复制没成功，可以长按预览里的文字手动复制', 'bad'); };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(done, function () {
+        if (legacyCopy(text)) done(); else bad();
+      });
+      return;
+    }
+    if (legacyCopy(text)) done(); else bad();
   }
 
   /* ---------------- 已知晓回执 ---------------- */

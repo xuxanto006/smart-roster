@@ -1271,10 +1271,54 @@ table.grid { border-collapse: separate; border-spacing: 0; width: 100%; min-widt
   box-shadow: none;
 }
 
+/* 导入到手机日历：iOS / 鸿蒙 / 安卓共用一份 .ics */
+.calbar {
+  display: flex;
+  align-items: center;
+  gap: 12px 16px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+  padding: 14px 20px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.calbar .cal-main { flex: 1 1 240px; min-width: 0; }
+
+.calbar .cal-main > b { display: block; font-size: 14px; font-weight: 600; }
+
+.calbar .cal-main > span {
+  display: block;
+  margin-top: 3px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-2);
+}
+
+.cal-list { display: flex; flex-wrap: wrap; gap: 6px 8px; margin-top: 9px; }
+
+.cal-list span {
+  padding: 4px 8px;
+  border-radius: 7px;
+  background: var(--surface-2);
+  font-size: 12px;
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.cal-acts { display: flex; gap: 8px; flex-wrap: wrap; }
+
 @media (max-width: 720px) {
   .dayrow { padding: 11px 14px; gap: 10px; }
   .dayrow .dw { flex: 0 0 86px; }
   .myweek-sum { padding: 12px 14px; font-size: 12.5px; }
   .ackbar { padding: 13px 14px; }
   .ackbar .ack-text { flex-basis: 100%; font-size: 12.5px; }
+  .calbar { padding: 13px 14px; }
+  .calbar .cal-main > span { font-size: 12px; }
+  .cal-acts { width: 100%; }
+  .cal-acts .btn { flex: 1 1 0; }
 }

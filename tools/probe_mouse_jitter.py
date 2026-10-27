@@ -37,11 +37,16 @@ FINGERPRINT = r"""
   });
   return JSON.stringify({
     iw: window.innerWidth,
+    ih: window.innerHeight,
     cw: de.clientWidth,
     ch: de.clientHeight,
-    sy: Math.round(window.scrollY),
-    sh: document.body.scrollHeight,
-    dsh: de.scrollHeight,
+    /* 横向 / 纵向滚动条是否出现（>0 就是出现了） */
+    sbx: Math.max(0, window.innerWidth - de.clientWidth),
+    sby: Math.max(0, window.innerHeight - de.clientHeight),
+    sw: de.scrollWidth,
+    sh: de.scrollHeight,
+    bsw: document.body.scrollWidth,
+    bsh: document.body.scrollHeight,
     card: r('.card'),
     page: r('.page'),
     legal: r('.legal'),
@@ -124,6 +129,7 @@ def main():
 
             seen = {}
             order = []
+            series = []
             # 覆盖整屏的扫描路径（含按钮/卡片区域）
             pts = []
             for i in range(1, 9):
@@ -136,6 +142,8 @@ def main():
                           "buttons": 0, "pointerType": "mouse"})
                 time.sleep(0.06)
                 fp = cdp.ev(FINGERPRINT)
+                d = json.loads(fp)
+                series.append((x, y, d["sbx"], d["sby"], d["sw"], d["sh"]))
                 if fp not in seen:
                     seen[fp] = 1
                     order.append(fp)
@@ -143,26 +151,29 @@ def main():
                     seen[fp] += 1
 
             print("采样点: %d, 不同指纹: %d" % (len(pts), len(order)))
+            print("\n鼠标(x,y) | 竖滚动条宽 sbx | 横滚动条高 sby | scrollWidth | scrollHeight")
+            for (x, y, sx, sy, sw_, sh_) in series:
+                print("  %4d,%4d | %2d | %2d | %5d | %5d" % (x, y, sx, sy, sw_, sh_))
+
             base = json.loads(order[0])
             for i, fp in enumerate(order):
                 d = json.loads(fp)
                 print("\n--- 指纹 #%d (命中 %d 次) ---" % (i + 1, seen[fp]))
-                for k in ("iw", "cw", "ch", "sy", "sh", "dsh", "card", "page",
-                          "legal", "topbar", "wrap", "sheet"):
+                for k in ("iw", "ih", "cw", "ch", "sbx", "sby", "sw", "sh", "bsw", "bsh",
+                          "card", "page", "legal", "topbar", "wrap", "sheet"):
                     if d.get(k) != base.get(k):
                         print("  [变化] %s: %s  ->  %s" % (k, base.get(k), d.get(k)))
                 if i == 0:
-                    print("  iw=%s cw=%s ch=%s sh=%s dsh=%s" %
-                          (d["iw"], d["cw"], d["ch"], d["sh"], d["dsh"]))
+                    print("  iw=%s ih=%s cw=%s ch=%s sw=%s sh=%s" %
+                          (d["iw"], d["ih"], d["cw"], d["ch"], d["sw"], d["sh"]))
                     print("  card=%s legal=%s" % (d["card"], d["legal"]))
                 if d.get("transforms"):
                     print("  行内 transform:", d["transforms"])
 
             if len(order) == 1:
-                print("\n结论：移动鼠标过程中布局完全不变 → 抖动不是布局回流，"
-                      "而是合成/重绘层（backdrop-filter、混合层等）。")
+                print("\n结论：移动鼠标过程中布局与滚动条完全不变 → 不再抖。")
             else:
-                print("\n结论：移动鼠标时布局在变 → 是真实回流（rect/scrollHeight 变化）。")
+                print("\n结论：移动鼠标时布局/滚动条在变 → 仍在抖（真实回流）。")
     finally:
         proc.terminate()
         try:

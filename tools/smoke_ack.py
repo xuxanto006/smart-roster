@@ -56,7 +56,13 @@ STUB = r"""
     },
     api: {
       call: function (fn, opts) {
-        window.__calls.push({ fn: fn, body: (opts && opts.body) || null });
+        /* auth 必须记下来：ack 在 Supabase 侧开了 Verify JWT，
+           忘了传 auth 会先被网关 401 掉，函数体根本跑不到。 */
+        window.__calls.push({
+          fn: fn,
+          auth: (opts && opts.auth) || null,
+          body: (opts && opts.body) || null
+        });
         if (fn === 'ack') {
           return Promise.resolve({
             http: 200,
@@ -204,9 +210,13 @@ def main():
             if "已确认知晓" not in (txt2 or ""):
                 fails.append("已确认文案不对：%s" % txt2)
             try:
-                body = json.loads(calls)[0]["body"]
+                first = json.loads(calls)[0]
+                body = first["body"]
                 if body.get("publish_id") != P1 or not body.get("token"):
                     fails.append("ack 请求体不对：%s" % body)
+                # 必须带 auth：否则网关先 401，函数体跑不到
+                if first.get("auth") != "fake-token-for-smoke":
+                    fails.append("ack 没带 auth（Supabase 网关要 Verify JWT），实际：%r" % first.get("auth"))
             except Exception:
                 fails.append("ack 请求没有发出去")
             errs = cdp.ev("JSON.stringify(window.__errors)")

@@ -194,10 +194,10 @@ for (const bad of ['SR.db.upsert', 'SR.db.insert', 'SR.db.del', 'SR.db.patch', "
 const idx = fs.readFileSync(path.join(dir, 'index.html'), 'utf8');
 const idxNeed = [
   ['index: 默认去登录页', "var to = 'login.html'"],
-  ['index: 员工会话去我的班表', "o.role === 'employee' ? 'me.html'"],
+  ['index: 员工会话去我的班表', "s.role === 'employee' ? 'me.html'"],
   ['index: 经理/只读会话去工作台', ": 'manager.html'"],
   ['index: 用 replace 不留历史栈', 'location.replace(to)'],
-  ['index: 会话过期回登录页', 'Date.now() < Number(o.expires_at)'],
+  ['index: 会话失效回登录页', 'go(window.SR && SR.session ? SR.session.get() : null)'],
 ];
 for (const [label, needle] of idxNeed) {
   if (idx.includes(needle)) say(`  [OK]   ${label}`);
@@ -236,6 +236,10 @@ const quickNeed = [
   ['login: 点「普通用户」不能是经理', "kind === 'employee' && isMgr"],
   ['login: URL 种子用完抹掉地址栏密码', 'history.replaceState'],
   ['login: 结果态要收起快捷面板', "$('#quick').style.display = 'none'"],
+  ['login: 开发状态内置账号开关', 'var DEV_SEED = {'],
+  ['login: 内置账号只认开发状态（门禁）', 'if (!DEV_SEED.on) return false;'],
+  ['login: 内置账号优先度低于本机凭据', 'if (!all.manager || !all.manager.u) all.manager = DEV_SEED.manager'],
+  ['login: 内置密码不会被写回 localStorage', 'all = quickLoadRaw(), dirty = false;'],
 ];
 for (const [label, needle] of quickNeed) {
   if (loginSrc.includes(needle)) say(`  [OK]   ${label}`);
@@ -251,15 +255,30 @@ for (const id of ['quick', 'quickForm', 'quickCfg', 'quickOff', 'quickMgr', 'qui
 }
 say('  [OK]   login.html: 快捷面板 11 个控件 id 齐全');
 
-// 账号密码绝不允许写进页面（仓库是 public 的）
-const credLeak = /(mgr|emp)=[A-Za-z0-9_.-]{2,}\|[^\s&"']{4,}/.test(loginSrc)
-  || /password\s*:\s*['"][^'"]{4,}['"]/.test(loginSrc)
-  || /\bu\s*:\s*['"][a-z0-9_]{3,20}['"]\s*,\s*p\s*:\s*['"][^'"]+['"]/.test(loginSrc);
+// 账号密码绝不允许写进页面（唯一例外：整块 DEV_SEED，且只在开发状态生效）
+const seedBlock = (/var DEV_SEED = \{[\s\S]*?\n  \};/.exec(loginSrc) || [])[0] || '';
+const loginNoSeed = loginSrc.replace(seedBlock, '');
+const credLeak = /(mgr|emp)=[A-Za-z0-9_.-]{2,}\|[^\s&"']{4,}/.test(loginNoSeed)
+  || /password\s*:\s*['"][^'"]{4,}['"]/.test(loginNoSeed)
+  || /\bu\s*:\s*['"][a-z0-9_]{3,20}['"]\s*,\s*p\s*:\s*['"][^'"]+['"]/.test(loginNoSeed);
 if (credLeak) {
   problems++;
   say('  [FAIL] login.html: 疑似把账号密码硬编码进页面（只允许存本机 localStorage）');
 } else {
   say('  [OK]   login.html: 没有硬编码的账号密码');
+}
+
+// DEV_SEED 是唯一允许出现明文密码的地方：每个密码只许出现一次、且必须在 DEV_SEED 里
+for (const pw of ['huawei@123', '12345678']) {
+  const n = loginSrc.split(pw).length - 1;
+  if (n !== 1 || !seedBlock.includes(pw)) {
+    problems++;
+    say(`  [FAIL] login.html: 开发账号密码只能出现在 DEV_SEED 块里（"${pw}" 出现 ${n} 次）`);
+  }
+}
+if (seedBlock.includes('huawei@123') && seedBlock.includes('12345678')) {
+  say('  [WARN] login.html: 内置开发账号是明文（superadmin / xmt），仓库若是 public 等于公开');
+  say('         → 上线前把 DEV_SEED.on 改 false 或删掉整块；正式访问不认它（seedAllowed 门禁）');
 }
 
 // 快捷登录要能自己解出服务端算式（题面就是 "12 + 7 = ?" 这种）
@@ -290,6 +309,40 @@ if (!qFnSrc) {
       say('  [OK]   solveQuestion 对非算式返回 null');
     }
   }
+}
+
+// ---------- 4g. 记住登录（这台设备 30 天免密） ----------
+say('\n== 4g. remember this device ==');
+const idxSrc = fs.readFileSync(path.join(dir, 'index.html'), 'utf8');
+const remNeed = [
+  ['login: 有「记住这台设备」勾选框', 'id="remember"'],
+  ['login: 记住的选择下次沿用', "'sr.rememberPref'"],
+  ['login: 登录成功按勾选写会话', 'SR.session.from(res, username, keep)'],
+  ['login: 记住后自动进入（不用再输密码）', 'SR.session.ensure()'],
+  ['login: 想换账号可 ?stay=1', 'stay=1'],
+  ['login: 结果页显示这台设备的状态', "'已记住 · 30 天内免密'"],
+  ['auth-core: 记住时长 30 天', 'REMEMBER_DAYS = 30'],
+  ['auth-core: 会话记 keep_until', 'keep_until: keep ? Date.now() + REMEMBER_DAYS * 86400000 : 0'],
+  ['auth-core: 续期端点', "'/auth/v1/token?grant_type=refresh_token'"],
+  ['auth-core: 续期失败 400/401 才清会话', 'r.status === 400 || r.status === 401'],
+  ['auth-core: 导出 ensure / refresh / raw', 'ensure: ensureSession'],
+  ['auth-core: REST 统一走 authToken（过期自动续）', 'function authToken()'],
+  ['index: 先续期再决定去哪', 'SR.session.ensure().then(go, go)'],
+  ['index: 只有记住的会话才续期（不记住的过期就回登录页）', 'raw && raw.remember'],
+];
+for (const [label, needle] of remNeed) {
+  const srcMap = { 'auth-core': core, 'login': loginSrc, 'index': idxSrc };
+  const src = srcMap[label.split(':')[0]];
+  if (src && src.includes(needle)) say(`  [OK]   ${label}`);
+  else { problems++; say(`  [FAIL] ${label}: "${needle}" not found`); }
+}
+
+// 「记住登录」必须真的是续期，不许把 expires_at 直接改成永久（那等于伪造本地过期时间）
+if (/expires_at\s*=\s*Date\.now\(\)\s*\+\s*365/.test(core) || /keep_until\s*=\s*0\s*;\s*\/\*.*永久/.test(core)) {
+  problems++;
+  say('  [FAIL] auth-core: 别用「把过期时间改成永久」的假记住');
+} else {
+  say('  [OK]   auth-core: 记住登录靠 refresh_token 续期，不是改本地过期时间');
 }
 
 // ---------- 5. 体积 ----------

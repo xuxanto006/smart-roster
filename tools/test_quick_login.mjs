@@ -51,7 +51,12 @@ async function run(kind, opts) {
   let settle;
   const done = new Promise((r) => { settle = r; });
   const sandbox = {
-    location: { protocol: 'https:', hostname: 'smart-roster.xuxanto.workers.dev', search: o.search || '', pathname: '/login.html', hash: '' },
+    location: {
+      protocol: o.protocol || 'https:',
+      hostname: o.host || 'smart-roster.xuxanto.workers.dev',
+      search: o.search || '',
+      pathname: '/login.html', hash: ''
+    },
     history: { replaceState() {} },
     localStorage: ls,
     console,
@@ -138,6 +143,43 @@ console.log('== 一键登录 · 选身份 ==');
   const r = await run('manager', { creds: MGR, role: 'manager', question: '今天几号？' });
   check('题面异常 → 不进登录接口', r.loginBody === null, r.loginBody);
   check('题面异常 → 落到「没走通」提示，不误报成功', r.result === null && /没走通/.test(r.msg || ''), r.msg);
+}
+
+// ⑧ 开发状态内置账号：本机（localhost）没存过凭据也能一键进
+{
+  const r = await run('manager', { creds: {}, host: 'localhost', role: 'manager' });
+  check('开发状态：管理员内置账号直接可用', r.loginBody && r.loginBody.username === 'superadmin', r.loginBody && r.loginBody.username);
+  check('开发状态：内置管理员密码正确带入', r.loginBody && r.loginBody.password === 'huawei@123');
+  check('开发状态：内置账号登录成功', r.result && r.result.kind === 'ok', r.result);
+}
+{
+  const r = await run('employee', { creds: {}, host: 'localhost', role: 'employee' });
+  check('开发状态：员工内置账号 xmt 可直接进', r.loginBody && r.loginBody.username === 'xmt', r.loginBody && r.loginBody.username);
+}
+
+// ⑨ 线上正常访问：内置账号必须不生效（否则等于把开发号发给全公司）
+{
+  const r = await run('manager', { creds: {}, role: 'manager' });
+  check('线上访问不认内置账号（不发登录请求）', r.loginBody === null && r.captchaCalls === 0);
+  check('线上访问引导去「设置账号」', /存一次账号密码/.test(r.msg || ''), r.msg);
+}
+
+// ⑩ 线上显式 ?dev=1：内置账号生效（开发联调用）
+{
+  const r = await run('manager', { creds: {}, search: '?dev=1', role: 'manager' });
+  check('?dev=1 时内置账号生效', r.loginBody && r.loginBody.username === 'superadmin', r.loginBody && r.loginBody.username);
+}
+
+// ⑪ 本机存过别的账号：优先用存的，不被内置覆盖
+{
+  const r = await run('manager', { creds: { manager: { u: 'realboss', p: 'pw' } }, host: 'localhost', role: 'manager' });
+  check('本机凭据优先于内置账号', r.loginBody && r.loginBody.username === 'realboss', r.loginBody && r.loginBody.username);
+}
+
+// ⑫ 内置的员工号点「管理员」：一样要被身份校验拦住
+{
+  const r = await run('manager', { creds: {}, host: 'localhost', role: 'employee' });
+  check('内置员工号点管理员 → 报错指路', r.result && r.result.kind === 'fail' && /普通用户/.test(r.result.d.message), r.result);
 }
 
 console.log(`\n结果: 通过 ${pass} / 失败 ${fail}`);

@@ -23,6 +23,21 @@
   .quick-head-acts { display: flex; gap: 8px; }
   /* 关键：.quick-form 有 display:flex，会盖掉 UA 的 [hidden]{display:none}，这里补回来 */
   .quick [hidden] { display: none !important; }
+  /* 记住这台设备 */
+  .rem { display: flex; align-items: center; gap: 9px; margin: 2px 0 14px; cursor: pointer; user-select: none; }
+  .rem input {
+    appearance: none; -webkit-appearance: none; margin: 0; flex: none;
+    width: 18px; height: 18px; border-radius: 5px; border: 1.5px solid var(--line);
+    background: var(--surface); position: relative; cursor: pointer; transition: all .18s var(--ease);
+  }
+  .rem input:checked { background: var(--accent); border-color: var(--accent); }
+  .rem input:checked::after {
+    content: ''; position: absolute; left: 5px; top: 1.5px;
+    width: 5px; height: 10px; border: solid #fff; border-width: 0 2px 2px 0; transform: rotate(45deg);
+  }
+  .rem span { font-size: 13px; color: var(--text-2); line-height: 1.4; }
+  .rem b { font-weight: 600; color: var(--text); }
+  .rem input:focus-visible { box-shadow: 0 0 0 3px var(--accent-soft); }
 </style>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='24' fill='%231d1d1f'/><text x='50' y='66' font-size='46' font-family='system-ui' font-weight='700' text-anchor='middle' fill='%23fff'>SR</text></svg>">
 </head>
@@ -91,6 +106,11 @@
         <span id="msgText"></span>
       </div>
 
+      <label class="rem" for="remember">
+        <input type="checkbox" id="remember" checked>
+        <span><b>记住这台设备</b>：30 天内打开就不用再输一次密码</span>
+      </label>
+
       <button class="btn primary block" id="submit" type="submit">
         <span class="spin"></span><span class="txt">登录</span>
       </button>
@@ -108,7 +128,7 @@
           <button class="btn plain sm" id="quickOff" type="button">不再显示</button>
         </div>
       </div>
-      <p class="hint" style="margin:6px 0 0">点一下直接进，不用输账号密码，也不用算验证码。凭据只存在本机浏览器，不写进仓库。</p>
+      <p class="hint" id="quickHint" style="margin:6px 0 0">点一下直接进，不用输账号密码，也不用算验证码。凭据只存在本机浏览器，不写进仓库。</p>
       <div class="quick-acts">
         <button class="btn ghost" id="quickMgr" type="button">管理员身份</button>
         <button class="btn ghost" id="quickEmp" type="button">普通用户身份</button>
@@ -186,22 +206,60 @@
   var cap = $('#cap'), capQ = $('#capQ'), capA = $('#capA'), capRing = $('#capRing');
   var hint = $('#capHint');
   var stateBox = $('#state');
+  var remBox = $('#remember');
 
   /* capToken 由服务端签发（captcha 函数），答案不上传，只在登录时随 token 一起回传判卷 */
   var CAP_TTL = 13; /* 算式有效期（秒）：题就在眼前，短窗口也够用，还能把 token 可复用时间压到最低 */
   var S = { fails: 0, capToken: '', capDead: false, stopRing: null, busy: false };
 
   /* ---------- 初始化 ---------- */
+  /* 「记住这台设备」的勾选状态是本机偏好，下次打开沿用上次的选择 */
+  (function rememberPref() {
+    var v = '';
+    try { v = localStorage.getItem('sr.rememberPref') || ''; } catch (e) {}
+    if (v === '0') remBox.checked = false;
+    else if (v === '1') remBox.checked = true;
+    remBox.addEventListener('change', function () {
+      try { localStorage.setItem('sr.rememberPref', remBox.checked ? '1' : '0'); } catch (e) {}
+    });
+  })();
+
+  /* 已经「记住」的这台设备：不再让用户输密码，签票续期后直接进
+     想换账号就在地址后面加 ?stay=1（登录页底部也有入口） */
+  var AUTO = false;
+  (function autoEnter() {
+    if (/(^|[?&])stay=1(&|$)/.test(location.search)) return;
+    var raw = null;
+    try { raw = SR.session.raw(); } catch (e) { raw = null; }
+    if (!raw || !raw.remember) return;
+    AUTO = true;
+    form.style.display = 'none';
+    $('#quick').hidden = true;
+    setMsg('这台设备已记住登录，正在进入…', 'info');
+    SR.session.ensure().then(function (s) {
+      if (!s) {
+        AUTO = false;
+        form.style.display = '';
+        $('#quick').hidden = !quickAllowed();
+        setMsg('记住的登录已失效，请重新登录一次');
+        refreshCaptcha();
+        return;
+      }
+      location.replace(s.role === 'employee' ? 'me.html' : 'manager.html');
+    });
+  })();
+
   (function prefill() {
     var sess = SR.session.get();
     var last = (sess && sess.username) || SR.session.lastUser();
     if (last) inpU.value = last;
-    if (sess && sess.role) {
+    if (sess && sess.role && !AUTO) {
       hint.classList.add('show');
       hint.innerHTML = '上次登录身份：<b>' + (sess.display_name || last) + '</b>' +
         (sess.role === 'employee' ? '（员工）' : '（排班经理）') + '，直接输入密码即可继续';
     }
     setTimeout(function () {
+      if (AUTO) return;
       (inpU.value ? inpP : inpU).focus();
     }, 300);
   })();
@@ -278,7 +336,8 @@
     }
   });
 
-  refreshCaptcha();
+  /* 自动进入中就不必先要一道算式（省一次请求） */
+  if (!AUTO) refreshCaptcha();
 
   /* ---------- 消息 ---------- */
   function setMsg(text, kind) {
@@ -431,7 +490,8 @@
 
   function onSuccess(res, username) {
     if (S.stopRing) S.stopRing();
-    var sess = SR.session.from(res, username);
+    var keep = !!(remBox && remBox.checked);
+    var sess = SR.session.from(res, username, keep);
     SR.session.save(sess);
     SR.session.setLastUser(username);
 
@@ -443,7 +503,8 @@
       ['账号', sess.username],
       ['身份', roleText],
       ['本机', SR.deviceId().slice(0, 6) + '…' + SR.deviceId().slice(-4)],
-      ['会话有效', Math.round((sess.expires_in || 3600) / 60) + ' 分钟']
+      ['会话有效', Math.round((sess.expires_in || 3600) / 60) + ' 分钟'],
+      ['这台设备', keep ? '已记住 · 30 天内免密' : '未记住 · 关掉就需重登']
     ], isManager
       ? [
           { label: '进入排班工作台', primary: true, onclick: function () { location.href = 'manager.html'; } },
@@ -513,8 +574,9 @@
      开发快捷登录（一键登录 · 选身份）
      ------------------------------------------------------------
      设计约束（别改坏这几条）：
-       ① **账号密码不进代码库**：仓库是 public 的，凭据只存在本机 localStorage
-          `sr_quick_cred_v1`，换台机器就得重新存一次（或用 URL 带一次，见下）；
+       ① **凭据只在「开发状态」生效**：内置开发账号（DEV_SEED）只在本机 / ?dev=1 时采用；
+          线上正式访问一律忽略内置账号。手动存的凭据只写进本机 localStorage
+          `sr_quick_cred_v1`，仓库代码里不出现业务账号密码（DEV_SEED 是开发账号，上线前要关）；
        ② 面板默认只在本机出现（localhost / 127.0.0.1 / file://）；
           线上要用得显式加 `?dev=1`，或者本机执行过
           `localStorage.setItem('sr_quick','1')`；
@@ -532,6 +594,23 @@
     hosts: ['localhost', '127.0.0.1', '0.0.0.0', '[::1]']
   };
 
+  /* 开发状态内置账号：只在「开发状态」生效（见 seedAllowed），正式访问不认它。
+     ⚠ 这里是明文密码，仓库若是 public 就等于公开；上线前务必把 DEV_SEED.on 改 false
+       或整段删掉。 */
+  var DEV_SEED = {
+    on: true,
+    manager: { u: 'superadmin', p: 'huawei@123' },
+    employee: { u: 'xmt', p: '12345678' }
+  };
+
+  /* 「开发状态」= 本机打开 / 显式 ?dev=1；线上正常访问返回 false（内置账号不生效） */
+  function seedAllowed() {
+    if (!DEV_SEED.on) return false;
+    if (location.protocol === 'file:') return true;
+    if (QUICK.hosts.indexOf(location.hostname) >= 0) return true;
+    return /(^|[?&])dev=1(&|$)/.test(location.search);
+  }
+
   function quickAllowed() {
     if (!QUICK.on) return false;
     if (location.protocol === 'file:') return true;
@@ -542,8 +621,18 @@
     try { return localStorage.getItem(QUICK.flag) !== '0'; } catch (e) { return true; }
   }
 
-  function quickLoad() {
+  /* 本机真存下来的那份（不掺内置账号，免得把内置密码又写回 localStorage） */
+  function quickLoadRaw() {
     try { return JSON.parse(localStorage.getItem(QUICK.key) || '{}') || {}; } catch (e) { return {}; }
+  }
+
+  function quickLoad() {
+    var all = quickLoadRaw();
+    if (seedAllowed()) {
+      if (!all.manager || !all.manager.u) all.manager = DEV_SEED.manager;
+      if (!all.employee || !all.employee.u) all.employee = DEV_SEED.employee;
+    }
+    return all;
   }
 
   function quickStore(all) {
@@ -559,7 +648,7 @@
       var i = kv.indexOf('=');
       if (i > 0) q[decodeURIComponent(kv.slice(0, i))] = decodeURIComponent(kv.slice(i + 1));
     });
-    var map = { mgr: 'manager', emp: 'employee' }, all = quickLoad(), dirty = false;
+    var map = { mgr: 'manager', emp: 'employee' }, all = quickLoadRaw(), dirty = false;
     Object.keys(map).forEach(function (k) {
       if (!q[k]) return;
       var parts = String(q[k]).split('|');
@@ -581,6 +670,10 @@
     var tag = function (c) { return c && c.u ? ' · ' + c.u : ' · 未设置'; };
     $('#quickMgr').textContent = '管理员身份' + tag(all.manager);
     $('#quickEmp').textContent = '普通用户身份' + tag(all.employee);
+    if (seedAllowed()) {
+      $('#quickHint').textContent = '开发状态：已内置 ' + DEV_SEED.manager.u + '（管理员）与 ' +
+        DEV_SEED.employee.u + '（普通用户），点按钮直接进；登录仍过服务端算式与设备登记。';
+    }
   }
 
   /* 题面形如 "12 + 7 = ?"（服务端只会出这一个格式），本地解出来当答案 */

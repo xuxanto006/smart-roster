@@ -134,28 +134,86 @@
     return call('register', { method: 'POST', body: { action: 'check_invite', invite_code: code } });
   }
 
-  /* ---------------- 会话 ---------------- */
+  /* ---------------- 会话 ----------------
+     两种会话：
+       - 不记住：access_token 到期（默认 1 小时）就视为失效，回登录页；
+       - 记住本机（remember）：keep_until 之前都算「登录过」，access_token 到期时
+         用 refresh_token 静默续期（Supabase GoTrue /auth/v1/token?grant_type=refresh_token），
+         用户不用每次都输密码。30 天到点自动清掉，避免一台机器永久免密。 */
+  var REMEMBER_DAYS = 30;
+
   function saveSession(payload) {
     try { localStorage.setItem(SESSION_KEY, JSON.stringify(payload)); } catch (e) {}
   }
-  function getSession() {
+  /* 不看有效期，只要本机存着就返回（续期要用它拿 refresh_token） */
+  function rawSession() {
     try {
       var s = localStorage.getItem(SESSION_KEY);
       if (!s) return null;
       var o = JSON.parse(s);
       if (!o || !o.access_token) return null;
-      if (o.expires_at && Date.now() > o.expires_at) return null;
       return o;
     } catch (e) { return null; }
+  }
+  function getSession() {
+    var o = rawSession();
+    if (!o) return null;
+    if (o.keep_until && Date.now() > Number(o.keep_until)) { clearSession(); return null; }
+    if (o.expires_at && Date.now() > Number(o.expires_at) && !o.refresh_token) return null;
+    return o;
   }
   function clearSession() { try { localStorage.removeItem(SESSION_KEY); } catch (e) {} }
   function lastUser() { try { return localStorage.getItem(LAST_USER_KEY) || ''; } catch (e) { return ''; } }
   function setLastUser(u) { try { localStorage.setItem(LAST_USER_KEY, u); } catch (e) {} }
 
-  function sessionFrom(resp, username) {
+  /* 用 refresh_token 换新的 access_token；失败返回 null（网络问题不清会话，401/400 才清） */
+  function refreshSession() {
+    var raw = rawSession();
+    if (!raw || !raw.refresh_token) return Promise.resolve(null);
+    return fetch(BASE + '/auth/v1/token?grant_type=refresh_token', {
+      method: 'POST',
+      cache: 'no-store',
+      headers: { apikey: KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refresh_token: raw.refresh_token })
+    }).then(function (r) {
+      return r.text().then(function (text) {
+        var d = null;
+        try { d = text ? JSON.parse(text) : null; } catch (e) { d = null; }
+        if (!r.ok || !d || !d.access_token) {
+          if (r.status === 400 || r.status === 401 || r.status === 403) clearSession();
+          return null;
+        }
+        var ns = {
+          access_token: d.access_token,
+          refresh_token: d.refresh_token || raw.refresh_token,
+          expires_in: d.expires_in || 3600,
+          expires_at: Date.now() + ((d.expires_in || 3600) * 1000),
+          username: raw.username,
+          role: raw.role || 'employee',
+          display_name: raw.display_name || raw.username,
+          remember: !!raw.remember,
+          keep_until: Number(raw.keep_until) || 0,
+          saved_at: raw.saved_at || Date.now(),
+          refreshed_at: Date.now()
+        };
+        saveSession(ns);
+        return ns;
+      });
+    }).catch(function () { return null; });
+  }
+
+  /* 当前会话（可能已经续期过）：没有可用会话时 resolve(null) */
+  function ensureSession() {
+    var s = getSession();
+    if (s && (!s.expires_at || Date.now() < Number(s.expires_at) - 5000)) return Promise.resolve(s);
+    return refreshSession();
+  }
+
+  function sessionFrom(resp, username, remember) {
     var d = resp && resp.data ? resp.data : {};
     var s = d.session || {};
     var p = d.profile || {};
+    var keep = !!remember;
     return {
       access_token: s.access_token || '',
       refresh_token: s.refresh_token || '',
@@ -164,6 +222,8 @@
       username: p.username || username,
       role: p.role || 'employee',
       display_name: p.display_name || p.username || username,
+      remember: keep,
+      keep_until: keep ? Date.now() + REMEMBER_DAYS * 86400000 : 0,
       saved_at: Date.now()
     };
   }
@@ -344,40 +404,51 @@
        数据库裁决，而不是靠前端自觉。
      注意：这里带 apikey / Authorization 头，会走 CORS 预检；Supabase REST 对预检
        支持完备，不像 Edge Functions 那样需要刻意避开。 */
-  function rest(path, opts) {
+  /* 取一个能用的 token：会话没到期就直接用，到期了先用 refresh_token 续期。
+     这样「记住登录」的设备在任何页面都不会因为 1 小时到点就被踢回登录页。 */
+  function authToken() {
     var s = getSession();
-    if (!s || !s.access_token) {
-      return Promise.resolve({
-        http: 401, ok: false, data: null,
-        code: 'NO_TOKEN', error: '登录状态已失效'
-      });
+    if (s && s.access_token && (!s.expires_at || Date.now() < Number(s.expires_at) - 5000)) {
+      return Promise.resolve(s.access_token);
     }
-    var o = opts || {};
-    var headers = { apikey: KEY, Authorization: 'Bearer ' + s.access_token };
-    var init = { method: o.method || 'GET', cache: 'no-store', headers: headers };
-    if (o.body !== undefined && o.body !== null) {
-      headers['Content-Type'] = 'application/json';
-      init.body = JSON.stringify(o.body);
-    }
-    if (o.prefer) headers.Prefer = o.prefer;
+    return refreshSession().then(function (ns) { return ns ? ns.access_token : ''; });
+  }
 
-    return fetch(BASE + '/rest/v1/' + path, init).then(function (r) {
-      return r.text().then(function (text) {
-        var data = null;
-        if (text) { try { data = JSON.parse(text); } catch (e) { data = null; } }
+  function rest(path, opts) {
+    var o = opts || {};
+    return authToken().then(function (token) {
+      if (!token) {
         return {
-          http: r.status,
-          ok: r.ok,
-          data: data,
-          code: r.ok ? 'ok' : (data && (data.code || data.message)) || ('HTTP_' + r.status),
-          error: r.ok ? '' : ((data && (data.message || data.hint || data.details)) || ('请求失败 ' + r.status))
+          http: 401, ok: false, data: null,
+          code: 'NO_TOKEN', error: '登录状态已失效'
+        };
+      }
+      var headers = { apikey: KEY, Authorization: 'Bearer ' + token };
+      var init = { method: o.method || 'GET', cache: 'no-store', headers: headers };
+      if (o.body !== undefined && o.body !== null) {
+        headers['Content-Type'] = 'application/json';
+        init.body = JSON.stringify(o.body);
+      }
+      if (o.prefer) headers.Prefer = o.prefer;
+
+      return fetch(BASE + '/rest/v1/' + path, init).then(function (r) {
+        return r.text().then(function (text) {
+          var data = null;
+          if (text) { try { data = JSON.parse(text); } catch (e) { data = null; } }
+          return {
+            http: r.status,
+            ok: r.ok,
+            data: data,
+            code: r.ok ? 'ok' : (data && (data.code || data.message)) || ('HTTP_' + r.status),
+            error: r.ok ? '' : ((data && (data.message || data.hint || data.details)) || ('请求失败 ' + r.status))
+          };
+        });
+      }).catch(function (e) {
+        return {
+          http: 0, ok: false, data: null, code: 'NETWORK',
+          error: '网络异常' + (e && e.message ? '：' + e.message : '')
         };
       });
-    }).catch(function (e) {
-      return {
-        http: 0, ok: false, data: null, code: 'NETWORK',
-        error: '网络异常' + (e && e.message ? '：' + e.message : '')
-      };
     });
   }
 
@@ -416,8 +487,12 @@
     session: {
       save: saveSession,
       get: getSession,
+      raw: rawSession,
       clear: clearSession,
       from: sessionFrom,
+      refresh: refreshSession,
+      ensure: ensureSession,
+      REMEMBER_DAYS: REMEMBER_DAYS,
       lastUser: lastUser,
       setLastUser: setLastUser
     },

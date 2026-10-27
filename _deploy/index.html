@@ -53,22 +53,26 @@
     <a href="register.html">注册</a>
   </div>
 
+<script src="auth-core.js"></script>
 <script>
 /* 站点入口：不再让根路径落到旧单机版页面
-   - 有未过期会话 → 经理/只读去工作台，员工去我的班表
-   - 没有会话 / 会话过期 → 登录页 */
+   - 有可用会话 → 经理/只读去工作台，员工去我的班表
+   - 会话过了 1 小时但本机「记住了登录」→ 先用 refresh_token 静默续期，续上了照样直接进
+   - 没有会话 / 续期失败 → 登录页 */
 (function () {
   'use strict';
-  var to = 'login.html';
-  try {
-    var raw = localStorage.getItem('sr.session');
-    if (raw) {
-      var o = JSON.parse(raw);
-      var alive = o && o.access_token && (!o.expires_at || Date.now() < Number(o.expires_at) + 0);
-      if (alive) to = o.role === 'employee' ? 'me.html' : 'manager.html';
-    }
-  } catch (e) { /* 隐私模式下读不到 localStorage，直接去登录页 */ }
-  location.replace(to);
+  function go(s) {
+    var to = 'login.html';
+    if (s && s.access_token) to = s.role === 'employee' ? 'me.html' : 'manager.html';
+    location.replace(to);
+  }
+  var raw = null;
+  try { raw = (window.SR && SR.session) ? SR.session.raw() : null; } catch (e) { raw = null; }
+  if (raw && raw.remember && window.SR && SR.session && SR.session.ensure) {
+    SR.session.ensure().then(go, go);   /* 续期失败也会落到登录页（go(false)） */
+    return;
+  }
+  go(window.SR && SR.session ? SR.session.get() : null);
 })();
 </script>
 </body>

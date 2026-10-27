@@ -83,7 +83,10 @@ const STAFF = [
   { name: "晏潇艺", module: "鸿蒙智行", position: "杜勇", level: "经理", domain: "manager" },
   { name: "黄晰文", module: "鸿蒙智行", position: "杜勇", level: "员工", domain: "hongmeng" },
   { name: "赵一鸣", module: "鸿蒙智行", position: "销售顾问", level: "员工", domain: "hongmeng" },
-  { name: "钱二壮", module: "鸿蒙智行", position: "销售顾问", level: "员工", domain: "hongmeng" }
+  { name: "钱二壮", module: "鸿蒙智行", position: "销售顾问", level: "员工", domain: "hongmeng" },
+  /* 行政：走固定班表（fixed_roster.pattern）——回归「行政给全店建行、把别人格子写空」 */
+  { name: "何昊敏", module: "行政", position: "人事", level: "员工", domain: "admin" },
+  { name: "杨乐乐", module: "行政", position: "收银/财务", level: "员工", domain: "admin" }
 ];
 
 function makeDb() {
@@ -276,6 +279,131 @@ async function run() {
   ok(earlyByDay.every(n => n > 0), "3c 每天都要有人上早班，实际每天早班人数：" + earlyByDay.join(","));
 
   function byName3c(n) { return STAFF.some(s => s.name === n && s.domain === "3c"); }
+
+  /* ⑨ 回归：行政走固定班表时，引擎内部是「按全店员工建整周行」的
+     （ensureWeek 用 state.staff，81 人线上名单下是 81 行，只有行政几行有内容）。
+     页面若照单全收，后生成的行政会把前面领域刚排好的格子逐格清空 ——
+     线上表现就是「点了生成本周，格子里什么都没有」（2026-10-27 复现并修复）。 */
+  const adminRows = rows.filter(r => r.staff_name === "何昊敏" || r.staff_name === "杨乐乐");
+  ok(adminRows.length === 14, "行政固定班表应写回 2 人 × 7 天 = 14 行，实际 " + adminRows.length);
+  ok(adminRows.every(r => !!r.slot), "行政固定班表写回的格子不应为空：" +
+    adminRows.filter(r => !r.slot).length + " 格是空的");
+  const lost3c = STAFF.filter(s => s.domain === "3c" && !byName[s.name]).map(s => s.name);
+  ok(!lost3c.length, "行政生成后 3c 有人整行消失（mergeWeek 没按领域过滤）：" + lost3c.join(","));
+
+  /* ⑩ 请假 / 必上录入面板：点「添加」要把记录写进 requests / must_work，
+       并且格子上出现「请 / 必」角标（经理要能在表上看见这条需求）。 */
+  const reqRows = () => db.__rows.requests || [];
+  const before = reqRows().length;
+  $("#reqName").value = "张淑慧";
+  $("#reqDay").value = "2";
+  $("#reqType").value = "leave";
+  $("#reqAdd").fire("click");
+  for (let i = 0; i < 100 && reqRows().length === before; i++) await new Promise(r => setTimeout(r, 5));
+  const added = reqRows()[reqRows().length - 1] || {};
+  ok(reqRows().length === before + 1, "点「添加」应写入一条 requests，实际 " + (reqRows().length - before) + " 条");
+  ok(added.staff_name === "张淑慧" && added.day === 2 && added.type === "leave",
+    "requests 行内容不对：" + JSON.stringify(added));
+  ok(added.week_key === WEEK && added.status === "approved",
+    "requests 应写 week_key=" + WEEK + " / status=approved，实际 " + JSON.stringify(added));
+  for (let i = 0; i < 100 && !/q-leave/.test($("#sheetWrap").innerHTML); i++) await new Promise(r => setTimeout(r, 5));
+  ok(/q-leave/.test($("#sheetWrap").innerHTML), "录入请假后格子上应出现「请」角标");
+  ok(/请假/.test($("#reqList").innerHTML), "请假列表里应出现这条记录，实际：" + $("#reqList").innerHTML.slice(0, 200));
+
+  /* 必上：没选具体哪天必须被拦住（引擎没有「哪天都行」这种约束） */
+  const beforeMust = (db.__rows.must_work || []).length;
+  $("#reqType").value = "must";
+  $("#reqDay").value = "";
+  $("#reqAdd").fire("click");
+  await new Promise(r => setTimeout(r, 20));
+  ok((db.__rows.must_work || []).length === beforeMust, "「必上」没选日期不该落库");
+  ok(toasts.some(t => /必须上班/.test(t.msg)), "「必上」没选日期应给出提示，实际：" +
+    toasts.map(t => t.msg).join(" / "));
+
+  /* 必上：选了日期就写 must_work */
+  $("#reqDay").value = "4";
+  $("#reqAdd").fire("click");
+  for (let i = 0; i < 100 && (db.__rows.must_work || []).length === beforeMust; i++) await new Promise(r => setTimeout(r, 5));
+  const mw = (db.__rows.must_work || [])[db.__rows.must_work.length - 1] || {};
+  ok(mw.staff_name === "张淑慧" && mw.day === 4 && mw.week_key === WEEK,
+    "must_work 行内容不对：" + JSON.stringify(mw));
+
+  /* 删除：按行上的表名 + id 定向删 */
+  const delBefore = db.log.deletes.length;
+  $("#reqList").fire("click", {
+    target: { closest: () => ({ disabled: false, getAttribute: k => (k === "data-del-tbl" ? "requests" : "12") }) }
+  });
+  await new Promise(r => setTimeout(r, 20));
+  ok(db.log.deletes.length === delBefore + 1, "点「删除」应发出一条 DELETE");
+  ok((db.log.deletes[delBefore] || {}).table === "requests",
+    "删除应打在 requests 表上，实际 " + JSON.stringify(db.log.deletes[delBefore]));
+
+  /* ⑪ 开店 / 闭店必须能人工修改（经理反馈「开/闭改不了」）：
+       切到「开店 / 闭店」模式 → 点格子循环 无 → 开店 → 闭店 → 无，每一步都要落 `shifts.role`。
+       这条链路是「模式切换 → 表格点击 → setSlot → flush(upsert)」，任何一环断了都会改不动。 */
+  const shiftsOf = (n, d) => (db.__rows.shifts || []).find(r => r.staff_name === n && r.day === d) || {};
+  const clickCell = (name, day) => {
+    const cellBtn = {
+      disabled: false, className: "", innerHTML: "",
+      getAttribute: k => (k === "data-si" ? String(STAFF.findIndex(s => s.name === name))
+        : k === "data-day" ? String(day) : ""),
+      setAttribute() {}
+    };
+    $("#sheetWrap").fire("click", { target: { closest: s => (s === ".cell" ? cellBtn : null) } });
+    return cellBtn;
+  };
+
+  /* 切模式：先确认点「开店 / 闭店」后 hint 变了（说明事件真的接上了） */
+  $("#modeSeg").fire("click", {
+    target: { closest: () => ({ getAttribute: () => "role" }) }
+  });
+  ok(/开店/.test($("#modeHint").textContent) && /循环/.test($("#modeHint").textContent),
+    "点「开店 / 闭店」后模式提示应切换，实际：" + $("#modeHint").textContent);
+
+  /* 连点三次：不管起点是「无 / 开店 / 闭店」，都必须按同一个环走完一圈，
+     并且每一下的角标都要跟着变（只要中间任何一环断掉，序列就凑不出合法环）。 */
+  const roleSeq = [];
+  for (let i = 0; i < 3; i++) {
+    const cellBtn = clickCell("陈悦娴", 0);
+    await new Promise(r => setTimeout(r, 60));
+    roleSeq.push(shiftsOf("陈悦娴", 0).role || null);
+    /* 角标必须跟着 role 走：open → 绿「开」、close → 橙「闭」、null → 淡占位（r-none） */
+    const want = roleSeq[i] === "open" ? "r-open" : roleSeq[i] === "close" ? "r-close" : "r-none";
+    ok(cellBtn.innerHTML.indexOf('class="r ' + want) >= 0,
+      `第 ${i + 1} 次点完后角标应是 ${want}（role=${roleSeq[i]}），实际 "${cellBtn.innerHTML}"`);
+  }
+  const validSeq = [["open", "close", null], ["close", null, "open"], [null, "open", "close"]];
+  ok(validSeq.some(v => v.join(",") === roleSeq.join(",")),
+    "role 模式点格子应循环 无 → 开店 → 闭店 → 无，实际：" + roleSeq.join(" → "));
+
+  /* 休息格不能标开/闭（没有班次就没有开闭店） */
+  const beforeRestToast = toasts.length;
+  const restCell = clickCell("何广友", 3);
+  await new Promise(r => setTimeout(r, 40));
+  ok(toasts.length > beforeRestToast && /班次/.test(toasts[toasts.length - 1].msg),
+    "休息格标开/闭应被拦住并提示，实际 toast：" + (toasts[toasts.length - 1] || {}).msg);
+  ok(!/开|闭/.test(restCell.innerHTML), "休息格不该出现开/闭角标，实际：" + restCell.innerHTML);
+
+  /* 切回「排班次」模式：同一格应回到「早 → 中 → 晚 → 休 → 清空」并顺手清掉开/闭角色。
+     挑一格本来就有班次（且不是 rest，否则下一步会走删除而不是 upsert）。 */
+  $("#modeSeg").fire("click", {
+    target: { closest: () => ({ getAttribute: () => "slot" }) }
+  });
+  ok(/早/.test($("#modeHint").textContent), "切回「排班次」后模式提示应还原，实际：" + $("#modeHint").textContent);
+  const CYCLE = { "": "early", early: "mid", mid: "night", night: "rest", rest: "" };
+  const slotCell = [0, 1, 2, 3, 4, 5, 6]
+    .map(d => ({ d, s: shiftsOf("陈悦娴", d).slot || "" }))
+    .find(x => x.s && x.s !== "rest");
+  ok(!!slotCell, "陈悦娴应该至少有一个非休息班次可以用来验证「排班次」模式");
+  if (slotCell) {
+    const expected = CYCLE[slotCell.s];
+    clickCell("陈悦娴", slotCell.d);
+    await new Promise(r => setTimeout(r, 60));
+    const now = shiftsOf("陈悦娴", slotCell.d);
+    ok(now.slot === expected, "slot 模式点一格应切换到下一档（" + slotCell.s + " → " + expected +
+      "），实际 " + JSON.stringify(now.slot));
+    ok(now.role === null, "切班次时应顺手清掉开/闭角色，实际 " + JSON.stringify(now.role));
+  }
 
   /* ------------------------------------------------------------ 输出 */
   console.log(`写回 ${rows.length} 行 · ${Object.keys(byName).length} 人 · upsert ${db.log.upserts.length} 次`);

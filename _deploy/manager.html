@@ -7,6 +7,51 @@
 <meta name="color-scheme" content="light dark">
 <title>排班工作台 · 智能排班</title>
 <link rel="stylesheet" href="ui.css">
+<style>
+  /* 经理端专用样式：只在本页生效，不改共享的 ui.css */
+  /* 开店 / 闭店标记：塞在格子的左下角，不挤占班次文字 */
+  .cell .r {
+    position: absolute; left: 3px; bottom: 2px;
+    font-size: 10px; line-height: 1; font-weight: 700; padding: 1px 4px;
+    border-radius: 5px; letter-spacing: 0; pointer-events: none;
+  }
+  .cell .r-open { background: rgba(52, 199, 89, .22); color: #1a7f37; }
+  .cell .r-close { background: rgba(255, 149, 0, .24); color: #a15200; }
+  /* 「开店 / 闭店」模式下，还没标角色的上班格给个淡淡的占位，让人看得见哪里可以点 */
+  .cell .r-none { background: rgba(120, 120, 128, .16); color: var(--text-3); }
+  /* 请假 / 必上标记：塞左上角（右上角是「未同步」蓝点，左下角是开/闭） */
+  .cell .q {
+    position: absolute; left: 3px; top: 2px;
+    font-size: 9px; line-height: 1; font-weight: 700; padding: 1px 3px;
+    border-radius: 4px; letter-spacing: 0;
+  }
+  .cell .q-leave { background: rgba(255, 59, 48, .16); color: #c0392b; }
+  .cell .q-must { background: rgba(0, 122, 255, .16); color: #0a58ca; }
+  /* 请假 / 必上录入 */
+  .req-panel {
+    margin: 12px 0 4px; border: 1px solid var(--line); border-radius: 14px;
+    background: var(--surface); overflow: hidden;
+  }
+  .req-panel > summary {
+    cursor: pointer; padding: 11px 14px; font-size: 13px; font-weight: 600;
+    color: var(--text-2); list-style: none;
+  }
+  .req-panel > summary::-webkit-details-marker { display: none; }
+  .req-panel > summary::after { content: "展开"; float: right; font-weight: 400; color: var(--text-2); }
+  .req-panel[open] > summary::after { content: "收起"; }
+  .req-panel .in { padding: 0 14px 14px; }
+  .req-form { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .req-form .select { max-width: 170px; }
+  .req-list { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }
+  .req-row {
+    display: flex; align-items: center; gap: 8px; font-size: 13px;
+    padding: 6px 10px; border-radius: 10px; background: var(--surface-2);
+  }
+  .req-row .tag { font-size: 11px; padding: 1px 6px; border-radius: 6px; background: var(--line-soft); color: var(--text-2); }
+  .req-row .tag.leave { background: rgba(255, 59, 48, .12); color: #c0392b; }
+  .req-row .tag.must { background: rgba(0, 122, 255, .12); color: #0a58ca; }
+  .req-row .x { margin-left: auto; }
+</style>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='24' fill='%231d1d1f'/><text x='50' y='66' font-size='46' font-family='system-ui' font-weight='700' text-anchor='middle' fill='%23fff'>SR</text></svg>">
 </head>
 <body>
@@ -49,6 +94,41 @@
     <input class="search" id="q" type="search" placeholder="搜索员工 / 岗位 / 模块" autocomplete="off">
   </div>
 
+  <div class="toolbar">
+    <span class="hint" style="margin:0">点格子改：</span>
+    <div class="seg" id="modeSeg" title="先选「点格子改什么」，再点格子">
+      <button type="button" data-mode="slot" class="on">班次</button>
+      <button type="button" data-mode="role">开店 / 闭店</button>
+    </div>
+    <span class="hint" id="modeHint" style="margin:0">点格子切换：早 → 中 → 晚 → 休 → 清空</span>
+  </div>
+
+  <details class="req-panel" id="reqPanel">
+    <summary>请假 / 必上录入 <span class="badge info" id="reqCount">0</span></summary>
+    <div class="in">
+      <div class="req-form">
+        <select class="select" id="reqName" title="选员工"></select>
+        <select class="select" id="reqDay" title="哪一天">
+          <option value="">整周</option>
+          <option value="0">周一</option>
+          <option value="1">周二</option>
+          <option value="2">周三</option>
+          <option value="3">周四</option>
+          <option value="4">周五</option>
+          <option value="5">周六</option>
+          <option value="6">周日</option>
+        </select>
+        <select class="select" id="reqType" title="请假 / 必须上班">
+          <option value="leave">请假</option>
+          <option value="must">必须上班</option>
+        </select>
+        <button class="btn plain" id="reqAdd" type="button">添加</button>
+      </div>
+      <div class="req-list" id="reqList"></div>
+      <p class="hint">请假 = 这天必须休息（留「整周」就是整周请假）；必须上班 = 这天不能排休息。录完点右上角「生成本周」重排才会生效，格子上会标「请 / 必」。</p>
+    </div>
+  </details>
+
   <p class="hint" id="genResult" hidden></p>
 
   <div class="legend">
@@ -56,7 +136,7 @@
     <span><i class="lg-mid"></i>中班</span>
     <span><i class="lg-night"></i>晚班</span>
     <span><i class="lg-rest"></i>休息</span>
-    <span class="mute">点格子依次切换：早 → 中 → 晚 → 休 → 清空；蓝点表示还没同步</span>
+    <span class="mute">左下角「开 / 闭」＝开店 / 闭店（切到「开店 / 闭店」模式后点格子可改）；右上角蓝点＝还没同步</span>
   </div>
 
   <div class="sheet-wrap" id="sheetWrap">
@@ -123,6 +203,21 @@
   var SLOT_LABEL = { early: '早', mid: '中', night: '晚', rest: '休' };
   var SLOT_CLASS = { '': '', early: 's-early', mid: 's-mid', night: 's-night', rest: 's-rest' };
   var CYCLE = { '': 'early', early: 'mid', mid: 'night', night: 'rest', rest: '' };
+  var ROLE_CYCLE = { '': 'open', open: 'close', close: '' };
+  var ROLE_LABEL = { open: '开', close: '闭' };
+  /* 开店 / 闭店标记：算法会自己算，人工也能改；只显示，不占班次文字 */
+  function roleChip(role, slot) {
+    if (!slot || slot === 'rest') return '';          /* 休息 / 空格没有开闭店 */
+    var r = (role === 'open' || role === 'close') ? role : '';
+    /* 在「开店 / 闭店」模式下，没标角色的上班格给个淡占位，告诉经理这里点得动 */
+    if (!r && S.mode !== 'role') return '';
+    return '<span class="r r-' + (r || 'none') + '">' + (ROLE_LABEL[r] || '开/闭') + '</span>';
+  }
+  /* 请假 / 必上：格子左上角一个角标，让经理一眼看到「这天有人请假 / 必须上班」 */
+  function reqChip(kind) {
+    if (kind !== 'leave' && kind !== 'must') return '';
+    return '<span class="q q-' + kind + '">' + (kind === 'leave' ? '请' : '必') + '</span>';
+  }
   var DOMAINS = [
     ['3c', '3C'], ['hongmeng', '鸿蒙'], ['zunjie', '尊界'],
     ['aftersales', '售后'], ['kufang', '库房'], ['admin', '行政'], ['manager', '管理']
@@ -142,7 +237,9 @@
     readonly: ME.role !== 'manager',
     domain: '*',
     q: '',
-    busy: false
+    busy: false,
+    mode: 'slot',     /* 点格子的行为：slot = 切班次；role = 标开店/闭店 */
+    reqs: []          /* 本周的请假 / 必上，来自 requests + must_work */
   };
 
   /* ---------------- 日期 ---------------- */
@@ -225,6 +322,7 @@
       setSave('草稿已同步', 'ok');
       renderAll();
       loadAck();
+      loadReqs();          /* 请假 / 必上：单独兜底，读不到（表未建）也不影响班表 */
     }).catch(function (e) {
       fail(String(e && e.message ? e.message : e));
     });
@@ -263,8 +361,10 @@
   }
 
   function renderAll() {
+    renderReqNames();
     renderDomSeg();
     renderSheet();
+    renderReqList();
   }
 
   function renderSheet() {
@@ -275,6 +375,7 @@
       return;
     }
 
+    var rmap = reqMap();
     var h = '<table class="grid"><thead><tr><th class="who">员工 <small>共 ' + list.length + ' 人</small></th>';
     for (var i = 0; i < 7; i++) {
       var d = addDays(parseYmd(S.week), i);
@@ -287,14 +388,21 @@
       var si = S.staff.indexOf(p);
       var meta = DOMAIN_LABEL[p.domain] || p.domain || '';
       if (p.position) meta += ' · ' + p.position;
+      if (p.level === '经理') meta += ' · 不排班';
       h += '<tr><td class="who"><b>' + esc(p.name) + '</b><small>' + esc(meta) + '</small></td>';
       for (var day = 0; day < 7; day++) {
         var k = p.name + '|' + day;
-        var slot = (S.grid[k] && S.grid[k].slot) || '';
+        var cell = S.grid[k] || {};
+        var slot = cell.slot || '';
+        var role = cell.role || '';
+        var mgr = p.level === '经理';     /* 经理不参与排班，格子恒为空且不可点 */
+        var qk = rmap[k] || '';
         h += '<td class="celltd"><button class="cell ' + SLOT_CLASS[slot] +
           (S.dirty[k] ? ' dirty' : '') + '" type="button" data-si="' + si + '" data-day="' + day +
-          '" data-s="' + slot + '"' + (S.readonly ? ' disabled' : '') +
-          ' title="' + esc(p.name + ' · ' + DAYS[day]) + '">' + (SLOT_LABEL[slot] || '—') + '</button></td>';
+          '" data-s="' + slot + '"' + ((S.readonly || mgr) ? ' disabled' : '') +
+          ' title="' + esc(p.name + ' · ' + DAYS[day] + (mgr ? '（经理不排班）' : '') +
+            (qk === 'leave' ? '（已录请假）' : qk === 'must' ? '（已录必上）' : '')) + '">' +
+          (SLOT_LABEL[slot] || '—') + roleChip(role, slot) + reqChip(qk) + '</button></td>';
       }
       h += '</tr>';
     });
@@ -398,7 +506,23 @@
     btn.title = S.readonly ? '只读账号不能发布' : (!hasAny ? '这一周还没排班' : '');
   }
 
-  /* ---------------- 编辑 ---------------- */
+  /* ---------------- 编辑 ----------------
+     一个格子承载两件事：班次（早/中/晚/休）与角色（开店/闭店）。
+     两种都用「点」来改，靠上面的模式切换分辨；切模式后重画一次表格，
+     让「开店 / 闭店」模式下所有上班格都露出淡占位（可点的位置看得见）。 */
+  $('#modeSeg').addEventListener('click', function (e) {
+    var b = e.target && e.target.closest ? e.target.closest('button[data-mode]') : null;
+    if (!b) return;
+    S.mode = b.getAttribute('data-mode') === 'role' ? 'role' : 'slot';
+    var all = $('#modeSeg').querySelectorAll('button');
+    for (var i = 0; i < all.length; i++) all[i].className = all[i] === b ? 'on' : '';
+    $('#modeHint').textContent = S.mode === 'role'
+      ? '点上班格循环：不标 → 开店 → 闭店 → 不标（休息格不能标）'
+      : '点格子切换：早 → 中 → 晚 → 休 → 清空（切班次会清掉开/闭）';
+    renderSheet();
+    SR.ui.toast(S.mode === 'role' ? '现在点格子改的是「开店 / 闭店」' : '现在点格子改的是「班次」', 'good');
+  });
+
   $('#sheetWrap').addEventListener('click', function (e) {
     var btn = e.target && e.target.closest ? e.target.closest('.cell') : null;
     if (!btn || btn.disabled || S.readonly) return;
@@ -407,21 +531,35 @@
     var p = S.staff[si];
     if (!p) return;
     var k = p.name + '|' + day;
-    var cur = (S.grid[k] && S.grid[k].slot) || '';
-    var next = CYCLE[cur] || '';
-    setSlot(k, next, btn, day);
+    var cur = S.grid[k] || { slot: '', role: null };
+
+    if (S.mode === 'role') {
+      if (!cur.slot || cur.slot === 'rest') {
+        SR.ui.toast('先给这天排上班次，才能标开店 / 闭店', 'bad');
+        return;
+      }
+      var next = ROLE_CYCLE[cur.role || ''] || '';
+      setSlot(k, cur.slot, btn, day, next);
+      SR.ui.toast(p.name + ' · ' + DAYS[day] + ' → ' +
+        (next === 'open' ? '开店' : next === 'close' ? '闭店' : '不标开/闭'), 'good');
+      return;
+    }
+    /* 切班次时顺手清掉角色：换成休息 / 清空还挂着「开店」是自相矛盾的 */
+    setSlot(k, CYCLE[cur.slot] || '', btn, day, '');
   });
 
-  function setSlot(k, slot, btn, day) {
+  function setSlot(k, slot, btn, day, role) {
     if (!S.grid[k]) S.grid[k] = { slot: '', role: null, manual: false };
     S.grid[k].slot = slot;
+    S.grid[k].role = (slot && slot !== 'rest') ? (role || null) : null;
     S.grid[k].manual = true;      /* 人工点过的格子 → shifts.manual（「轻触」契约落库） */
     S.dirty[k] = true;
 
     if (btn) {
       btn.className = 'cell ' + SLOT_CLASS[slot] + ' dirty';
       btn.setAttribute('data-s', slot);
-      btn.textContent = SLOT_LABEL[slot] || '—';
+      btn.innerHTML = (SLOT_LABEL[slot] || '—') + roleChip(S.grid[k].role, slot) +
+        reqChip(reqMap()[k] || '');
     }
     updateCounts();
     schedule();
@@ -492,6 +630,145 @@
       return true;
     });
   }
+
+  /* ---------------- 请假 / 必上录入 ----------------
+     落两张表，与「生成本周」读取的位置一致：
+       · 请假 → requests（week_key=本周，day 为空 = 整周请假，status=approved 直接生效）
+       · 必上 → must_work（day 必填：引擎没有「哪天都行」这种约束）
+     录入不自动重排：生成是整周覆盖，什么时候排由经理自己点。 */
+  var REQ_KIND = { leave: '请假', must: '必上', swap: '调班' };
+  var REQ_DAY = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
+
+  function renderReqNames() {
+    var sel = $('#reqName');
+    if (!sel) return;
+    var keep = sel.value;
+    var h = '';
+    S.staff.forEach(function (p) {
+      var d = DOMAIN_LABEL[p.domain] || p.domain || '';
+      h += '<option value="' + esc(p.name) + '">' + esc(p.name + (d ? ' · ' + d : '') +
+        (p.level === '经理' ? '（不排班）' : '')) + '</option>';
+    });
+    sel.innerHTML = h || '<option value="">（名单是空的）</option>';
+    if (keep && h) { sel.value = keep; if (!sel.value) sel.selectedIndex = 0; }
+  }
+
+  /* 请假 / 必上 → 「姓名|day」的角标表；整周请假按引擎语义展开成 7 天 */
+  function reqMap() {
+    var m = {};
+    S.reqs.forEach(function (x) {
+      var kind = x.kind === 'must' ? 'must' : 'leave';
+      if (x.day == null) {
+        if (kind !== 'leave') return;
+        for (var d = 0; d < 7; d++) m[x.name + '|' + d] = 'leave';
+        return;
+      }
+      var k = x.name + '|' + Number(x.day);
+      /* 同一天既请又必上属于冲突：请假优先显示，让人一眼看到要处理 */
+      if (m[k] !== 'leave') m[k] = kind;
+    });
+    return m;
+  }
+
+  function loadReqs() {
+    var wk = S.week;
+    return Promise.all([
+      SR.db.select('requests', 'week_key=eq.' + wk + '&select=id,staff_name,day,type,status&order=id.desc'),
+      SR.db.select('must_work', 'week_key=eq.' + wk + '&select=id,staff_name,day&order=id.desc')
+    ]).then(function (r) {
+      if (S.week !== wk) return;                 /* 期间切了周：丢掉过期结果 */
+      var list = [];
+      if (r[0].ok && r[0].data) r[0].data.forEach(function (x) {
+        list.push({ id: x.id, tbl: 'requests', name: x.staff_name, day: x.day, kind: x.type });
+      });
+      if (r[1].ok && r[1].data) r[1].data.forEach(function (x) {
+        list.push({ id: x.id, tbl: 'must_work', name: x.staff_name, day: x.day, kind: 'must' });
+      });
+      S.reqs = list;
+      renderReqList();
+      renderSheet();                             /* 角标依赖 S.reqs，得重画一次表格 */
+    }).catch(function () {
+      /* 表没建 / 网络抖动：面板留空，班表照常可用 */
+    });
+  }
+
+  function renderReqList() {
+    var box = $('#reqList'), cnt = $('#reqCount');
+    if (cnt) cnt.textContent = String(S.reqs.length);
+    if (!box) return;
+    if (!S.reqs.length) {
+      box.innerHTML = '<p class="hint" style="margin:0">本周还没有请假 / 必上记录。</p>';
+      return;
+    }
+    box.innerHTML = S.reqs.map(function (x) {
+      var dayTxt = x.day == null ? '整周' : (REQ_DAY[Number(x.day)] || ('第 ' + x.day + ' 天'));
+      var cls = x.kind === 'must' ? 'must' : x.kind === 'leave' ? 'leave' : '';
+      var tail = x.kind === 'swap' ? '（调班暂不支持自动排，需手工改格子）' : '';
+      return '<div class="req-row"><span class="tag ' + cls + '">' + esc(REQ_KIND[x.kind] || x.kind) +
+        '</span><b>' + esc(x.name) + '</b><span class="hint" style="margin:0">' + esc(dayTxt + tail) + '</span>' +
+        '<button class="btn plain sm x" type="button" data-del-tbl="' + esc(x.tbl) +
+        '" data-del-id="' + esc(x.id) + '">删除</button></div>';
+    }).join('');
+  }
+
+  function addReq() {
+    if (S.readonly) return SR.ui.toast('只读账号不能录入', 'bad');
+    var name = $('#reqName') ? $('#reqName').value : '';
+    var dv = $('#reqDay').value;
+    var type = $('#reqType').value === 'must' ? 'must' : 'leave';
+    var day = dv === '' ? null : Number(dv);
+    if (!name) return SR.ui.toast('先选一位员工', 'bad');
+    if (type === 'must' && day == null) return SR.ui.toast('「必须上班」得选具体哪天', 'bad');
+
+    var dup = S.reqs.some(function (x) {
+      var xd = x.day == null ? null : Number(x.day);
+      var xk = x.kind === 'must' ? 'must' : 'leave';
+      return x.name === name && xk === type && xd === day;
+    });
+    if (dup) return SR.ui.toast('这条已经录过了', 'bad');
+
+    var job = type === 'must'
+      ? SR.db.insert('must_work', { staff_name: name, week_key: S.week, day: day })
+      : SR.db.insert('requests', {
+          staff_name: name, week_key: S.week, day: day, type: 'leave',
+          status: 'approved', note: '经理端录入'
+        });
+
+    return job.then(function (r) {
+      if (!r.ok) {
+        if (r.http === 401) { reauth(); return; }
+        SR.ui.toast('录入失败：' + (r.error || ('HTTP ' + r.http)), 'bad');
+        return;
+      }
+      var where = day == null ? '整周' : DAYS[day];
+      SR.ui.toast('已录入：' + name + ' · ' + REQ_KIND[type] + ' · ' + where, 'good');
+      genNote('<b>已录入' + esc(REQ_KIND[type]) + '</b> ' + esc(name + ' · ' + where) +
+        '<br><span class="mute">点右上角「生成本周」重排后生效（生成是整周覆盖）。</span>');
+      return loadReqs();
+    });
+  }
+
+  $('#reqAdd').addEventListener('click', function () { addReq(); });
+
+  /* 删除：按行上的表名 + id 定向删，不做「清空整周」这种危险操作 */
+  $('#reqList').addEventListener('click', function (e) {
+    var b = e.target && e.target.closest ? e.target.closest('button[data-del-id]') : null;
+    if (!b) return;
+    if (S.readonly) return SR.ui.toast('只读账号不能改', 'bad');
+    var tbl = b.getAttribute('data-del-tbl');
+    var id = b.getAttribute('data-del-id');
+    if (tbl !== 'requests' && tbl !== 'must_work') return;
+    b.disabled = true;
+    SR.db.del(tbl, 'id=eq.' + encodeURIComponent(id)).then(function (r) {
+      if (!r.ok) {
+        b.disabled = false;
+        SR.ui.toast('删除失败：' + (r.error || ('HTTP ' + r.http)), 'bad');
+        return;
+      }
+      SR.ui.toast('已删除', 'good');
+      loadReqs();
+    }).catch(function () { b.disabled = false; });
+  });
 
   /* ---------------- 智能生成（算法文档 §8 一期） ----------------
      做的事：读云端输入（规则阈值 / 请假 / 必上 / 固定班表 / 员工名单）→ 交给
@@ -618,26 +895,46 @@
     return { state: st, skip: skip };
   }
 
-  /* 这次要生成哪些领域：页面上选了具体领域就只生成它，选「全部」就逐领域都排 */
+  /* 这次要生成哪些领域：页面上选了具体领域就只生成它，选「全部」就按名单逐个领域排。
+     「管理」永远跳过：经理（level=经理）不参与排班，进去只会得到「至少需要 2 人」。 */
   function targetDomains(st) {
     if (S.domain !== '*') return [S.domain];
-    var have = {};
-    st.staff.forEach(function (n) { have[st.staffDomain[n]] = (have[st.staffDomain[n]] || 0) + 1; });
+    var have = {}, order = [];
+    st.staff.forEach(function (n) {
+      var d = st.staffDomain[n];
+      if (!d) return;
+      if (!have[d]) { have[d] = 0; order.push(d); }
+      have[d]++;
+    });
     var out = [];
-    DOMAINS.forEach(function (d) { if (have[d[0]]) out.push(d[0]); });
+    DOMAINS.forEach(function (x) { if (x[0] !== 'manager' && have[x[0]]) out.push(x[0]); });
+    /* 名单里出现、但页面没定义过的领域也照排（N16 之后领域以库里的 staff.domain 为准） */
+    order.forEach(function (d) {
+      if (d === 'manager' || out.indexOf(d) >= 0) return;
+      if (have[d]) out.push(d);
+    });
     return out;
   }
 
-  /* 把引擎结果并进 S.grid，并标脏等 flush 落库 */
-  function mergeWeek(res) {
-    var grid = res.grid || {}, roles = res.roles || {}, n = 0;
+  /* 把引擎结果并进 S.grid，并标脏等 flush 落库。
+     ⚠️ 必须按领域过滤：引擎的周表里**故意**带着全店的人（内嵌页面要画整张表），
+     「行政」走固定班表时一行 `ensureWeek` 就会给全部 81 人建行，且只有行政的 5 行有内容。
+     照单全收的话，最后生成的行政会把其它领域刚排好的格子一条条清成空
+     —— 表现就是「点了生成本周，格子里什么都没有」（2026-10-27 实测复现）。 */
+  function mergeWeek(res, dom, st) {
+    var grid = res.grid || {}, roles = res.roles || {}, n = 0, names = 0;
     Object.keys(grid).forEach(function (name) {
+      if (st.staffDomain[name] !== dom) return;
       var row = grid[name] || [], roleRow = roles[name] || [];
-      for (var d = 0; d < 7; d++) {
-        var k = name + '|' + d;
-        var slot = row[d] || '';
+      var hasAny = false;
+      for (var d = 0; d < 7; d++) if (row[d]) { hasAny = true; break; }
+      if (!hasAny) return;            /* 全空行：本领域没排到这个人，别去清已有草稿 */
+      names++;
+      for (var d2 = 0; d2 < 7; d2++) {
+        var k = name + '|' + d2;
+        var slot = row[d2] || '';
         if (SLOTS[slot] === undefined) slot = '';   /* 引擎只产出 early/mid/night/rest */
-        var role = roleRow[d] || null;
+        var role = roleRow[d2] || null;
         var cur = S.grid[k] || { slot: '', role: null, manual: false };
         if (cur.slot === slot && (cur.role || null) === role) continue;
         S.grid[k] = { slot: slot, role: role, manual: false };
@@ -645,12 +942,13 @@
         n++;
       }
     });
-    return n;
+    return { cells: n, names: names };
   }
 
   function genRun() {
     if (!SCHED) return SR.ui.toast('排班引擎没加载（scheduler.js 缺失）', 'bad');
     if (S.readonly) return SR.ui.toast('只读账号不能生成', 'bad');
+    if (S.domain === 'manager') return SR.ui.toast('「管理」领域不排班：经理的班次手排或到本部门排', 'bad');
 
     var existing = Object.keys(S.grid).filter(function (k) { return S.grid[k] && S.grid[k].slot; }).length;
     if (existing && !confirm('本周已有 ' + existing + ' 格草稿，生成会整周覆盖，继续？')) return;
@@ -704,8 +1002,10 @@
           budgetMs: budget.budgetMs, climbMs: budget.climbMs,
           input: { state: st }
         });
-        var cells = mergeWeek(res);
-        out.push({ domain: dom, res: res, cells: cells, ms: Date.now() - t0 });
+        var merged = mergeWeek(res, dom, st);
+        out.push({
+          domain: dom, res: res, cells: merged.cells, names: merged.names, ms: Date.now() - t0
+        });
         i++;
         return step();
       });
@@ -728,16 +1028,33 @@
         if (!ok) throw new Error('班表已生成，但写入云端失败（草稿仍留在页面上，可再点一次生成重试）');
         setSave('草稿已同步', 'ok');
         pubBadge();
+
         var head = (DOMAIN_LABEL[S.domain] || '全部领域') + ' · ' +
           (effort === 'quality' ? '精细' : '快速') + ' · ' +
           total + ' 格改动 · ' + (ms / 1000).toFixed(1) + 's';
         var body = '硬约束违约 ' + hard + ' 条 · 缺口 ' + gaps + ' 处 · 评分 ' + Math.round(score);
+        /* 逐领域明细：排了 0 格时必须说清原因，否则页面只会「什么都没变」 */
+        var rows = list.map(function (x) {
+          var s = (x.res && x.res.stats) || {};
+          var label = DOMAIN_LABEL[x.domain] || x.domain;
+          var line = label + ' ' + x.cells + ' 格';
+          if (x.res && x.res.ok && x.cells) {
+            line += '（' + s.hard + ' 违约 / ' + s.gaps + ' 缺口）';
+          } else {
+            var why = (x.res && x.res.warnings && x.res.warnings[0]) || '没有可排班的人';
+            why = String(why).replace(/\s+/g, ' ').slice(0, 60);
+            line += ' —— ' + esc(why);
+          }
+          return line;
+        }).join('<br>');
         var tail = warn.length
           ? '<br><span class="mute">需要人工确认 ' + warn.length + ' 条：' + esc(warn.slice(0, 6).join('；')) +
             (warn.length > 6 ? ' …' : '') + '</span>'
           : '';
-        genNote('<b>已生成</b> ' + esc(head) + '<br>' + esc(body) + tail);
-        SR.ui.toast('本周班表已生成 ' + total + ' 格', 'good');
+        genNote('<b>' + (total ? '已生成' : '⚠️ 没有生成任何班次') + '</b> ' + esc(head) +
+          '<br>' + esc(body) + '<br><span class="mute">' + rows + '</span>' + tail);
+        SR.ui.toast(total ? '本周班表已生成 ' + total + ' 格' : '没有生成任何班次，请看下方原因',
+          total ? 'good' : 'bad');
       });
     });
   }

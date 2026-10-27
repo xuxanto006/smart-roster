@@ -103,10 +103,14 @@ def main():
     if len(sys.argv) < 2:
         print(__doc__)
         return 2
-    page = (ROOT / sys.argv[1]) if not os.path.isabs(sys.argv[1]) else Path(sys.argv[1])
+    target = sys.argv[1]
+    if target.startswith("http://") or target.startswith("https://"):
+        url = target          # 也支持直接量线上地址：https://pipban.online/login
+    else:
+        page = ROOT / target if not os.path.isabs(target) else Path(target)
+        url = page.as_uri()
     w = int(sys.argv[2]) if len(sys.argv) > 2 else 1280
     h = int(sys.argv[3]) if len(sys.argv) > 3 else 800
-    url = page.as_uri()
 
     port = 9345
     tmp = Path(os.environ["TEMP"]) / ("edge-jitter-%d" % port)

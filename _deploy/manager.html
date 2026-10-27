@@ -737,7 +737,14 @@
     return job.then(function (r) {
       if (!r.ok) {
         if (r.http === 401) { reauth(); return; }
-        SR.ui.toast('录入失败：' + (r.error || ('HTTP ' + r.http)), 'bad');
+        var msg = r.error || ('HTTP ' + r.http);
+        /* 403 基本只有一种可能：数据库策略还只允许「员工给自己请假」，
+           经理替别人录被 RLS 挡掉（见 supabase/migrations/006_requests_manager_insert.sql） */
+        if (r.http === 403) {
+          msg = '没有权限（数据库策略未放开「经理替别人录入」，执行 006_requests_manager_insert.sql）';
+        }
+        if (window.console && console.warn) console.warn('[录入失败]', r);
+        SR.ui.toast('录入失败：' + msg, 'bad');
         return;
       }
       var where = day == null ? '整周' : DAYS[day];
@@ -747,6 +754,19 @@
       return loadReqs();
     });
   }
+
+  /* 「必须上班」没有「哪天都行」这种语义（引擎的 mustWork 必须带 day）：
+     选「必上」就把「整周」这一项禁掉并自动落到周一，省得点了才被拦。 */
+  function syncReqDay() {
+    var must = $('#reqType').value === 'must';
+    var sel = $('#reqDay');
+    var opt = sel.querySelector ? sel.querySelector('option[value=""]') : null;
+    if (opt) opt.disabled = must;
+    if (must && sel.value === '') sel.value = '0';
+    sel.title = must ? '「必须上班」要选具体哪天' : '不选 = 整周请假';
+  }
+  $('#reqType').addEventListener('change', syncReqDay);
+  syncReqDay();
 
   $('#reqAdd').addEventListener('click', function () { addReq(); });
 

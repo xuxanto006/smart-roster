@@ -338,6 +338,17 @@ async function run() {
   ok((db.log.deletes[delBefore] || {}).table === "requests",
     "删除应打在 requests 表上，实际 " + JSON.stringify(db.log.deletes[delBefore]));
 
+  /* 数据库侧：002 的 pol_requests_insert 只允许「员工给自己提交」
+     （with check staff_name = my_staff_name()），经理替张三录请假会被 RLS 挡成 403
+     —— 这就是线上「请假录不进去」的真实原因，靠 006 迁移补一条 is_editor() 的策略。
+     这条断言防的是「迁移被误删 / 被后来的迁移覆盖掉」。 */
+  const MIG006 = path.join(ROOT, "supabase", "migrations", "006_requests_manager_insert.sql");
+  ok(fs.existsSync(MIG006), "缺少 supabase/migrations/006_requests_manager_insert.sql");
+  const mig = fs.existsSync(MIG006) ? fs.readFileSync(MIG006, "utf8") : "";
+  ok(/pol_requests_insert_mgr/.test(mig) && /with check \(public\.is_editor\(\)\)/.test(mig),
+    "006 必须给 requests 补一条 for insert ... with check (is_editor()) 的策略");
+  ok(/for insert to authenticated/.test(mig), "006 的策略应限定 for insert to authenticated");
+
   /* ⑪ 开店 / 闭店必须能人工修改（经理反馈「开/闭改不了」）：
        切到「开店 / 闭店」模式 → 点格子循环 无 → 开店 → 闭店 → 无，每一步都要落 `shifts.role`。
        这条链路是「模式切换 → 表格点击 → setSlot → flush(upsert)」，任何一环断了都会改不动。 */

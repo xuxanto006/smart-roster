@@ -240,6 +240,16 @@ const quickNeed = [
   ['login: 内置账号总开关能一刀关掉', 'if (!DEV_SEED.on) return false;'],
   ['login: 内置账号优先度低于本机凭据', 'if (!all.manager || !all.manager.u) all.manager = DEV_SEED.manager'],
   ['login: 内置密码不会被写回 localStorage', 'all = quickLoadRaw(), dirty = false;'],
+  /* 前端显示 test、库里还是旧名 xmt 的兜底：必须只在「内置凭据 + 查无此人/密码不对」时启用 */
+  ['login: 内置员工旧名兜底只在 DEV_SEED 里声明', "legacy: { u: 'xmt' }"],
+  ['login: 兜底判定是独立函数（可单测）', 'function legacyOf(kind, c)'],
+  ['login: 兜底仍受 seedAllowed 约束（?dev=0 一并失效）', 'if (!seedAllowed()) return null;'],
+  ['login: 只有账号密码都对上内置那份才兜底', 'if (c.p !== seed.p) return null;'],
+  ['login: 只有查无此人/密码不对才换旧账号', "d.reason !== 'BAD_CREDENTIALS' && d.reason !== 'NO_SUCH_USER'"],
+  ['login: 兜底重新取题再登（不复用旧 token）', 'return tryLogin(alt)'],
+  ['login: 兜底成功要用 toast 点明旧账号', "改名前的 ' + alt.u + ' 登录"],
+  ['login: 两个都失败要说清楚（指向 007）', '先在 Supabase 执行 007 迁移'],
+  ['login: 成功后按实际登录的账号写会话', 'onSuccess(res, used)'],
 ];
 for (const [label, needle] of quickNeed) {
   if (loginSrc.includes(needle)) say(`  [OK]   ${label}`);

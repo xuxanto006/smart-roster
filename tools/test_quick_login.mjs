@@ -50,7 +50,7 @@ async function run(kind, opts) {
     setItem: (k, v) => { if (k === 'sr_quick_cred_v1') { const p = JSON.parse(v); Object.keys(p).forEach((x) => { store[x] = p[x]; }); } },
     removeItem: () => {}
   };
-  const out = { msg: null, toast: null, result: null, loginBody: null, captchaCalls: 0, question: o.question || '8 - 4 = ?' };
+  const out = { msg: null, toast: null, result: null, loginBody: null, loginBodies: [], captchaCalls: 0, question: o.question || '8 - 4 = ?' };
 
   let settle;
   const done = new Promise((r) => { settle = r; });
@@ -73,7 +73,12 @@ async function run(kind, opts) {
     SR: {
       api: {
         captcha: () => { out.captchaCalls++; return Promise.resolve({ data: { ok: true, token: 'TK', question: out.question } }); },
-        login: (body) => { out.loginBody = body; return Promise.resolve({ data: { ok: true, profile: { role: o.role || 'employee' } } }); }
+        login: (body) => {
+          out.loginBody = body;
+          out.loginBodies.push(body);
+          const data = o.loginStub ? o.loginStub(body) : { ok: true, profile: { role: o.role || 'employee' } };
+          return Promise.resolve({ data });
+        }
       },
       deviceId: () => 'DEVICE',
       ua: () => 'UA',
@@ -189,6 +194,57 @@ console.log('== 一键登录 · 选身份 ==');
 {
   const r = await run('manager', { creds: {}, role: 'employee' });
   check('内置员工号点管理员 → 报错指路', r.result && r.result.kind === 'fail' && /普通用户/.test(r.result.d.message), r.result);
+}
+
+// ⑫ 库里还没有 test（NO_SUCH_USER）→ 用改名前的 xmt 兜底，并明确提示用的是旧账号
+{
+  const stub = (b) => b.username === 'test'
+    ? { ok: false, reason: 'NO_SUCH_USER', message: '账号或密码不对' }
+    : { ok: true, profile: { role: 'employee' } };
+  const r = await run('employee', { creds: {}, loginStub: stub });
+  check('test 查无此人 → 自动再用 xmt 登一次', r.loginBodies.length === 2 && r.loginBodies[1].username === 'xmt', r.loginBodies.map((b) => b.username));
+  check('兜底那次重新取题、仍走真实验证码', r.captchaCalls === 2 && r.loginBodies[1].captcha_token === 'TK', r.captchaCalls);
+  check('兜底成功后账号就是 xmt（不谎报 test）', r.result && r.result.kind === 'ok' && r.result.username === 'xmt', r.result);
+  check('兜底要 toast 点明「这次用的是 xmt」', r.toast && /xmt/.test(r.toast[0]) && /007/.test(r.toast[0]), r.toast);
+}
+
+// ⑬ BAD_CREDENTIALS（profile 在、auth 里对不上）→ 同样兜底
+{
+  const stub = (b) => b.username === 'test'
+    ? { ok: false, reason: 'BAD_CREDENTIALS', message: '账号或密码不对' }
+    : { ok: true, profile: { role: 'employee' } };
+  const r = await run('employee', { creds: {}, loginStub: stub });
+  check('密码不对也换旧账号重试一次', r.loginBodies.length === 2 && r.result && r.result.username === 'xmt', r.loginBodies.map((b) => b.username));
+}
+
+// ⑭ 两个都登不上：说清两边都不行，别静默成功
+{
+  const stub = () => ({ ok: false, reason: 'BAD_CREDENTIALS', message: '账号或密码不对' });
+  const r = await run('employee', { creds: {}, loginStub: stub });
+  const m = (r.result && r.result.d && r.result.d.message) || '';
+  check('两个账号都失败 → 不报登录成功', !r.result || r.result.kind === 'fail', r.result && r.result.kind);
+  check('报错同时点名 test 与 xmt，并指向 007 / 后台建号', /test/.test(m) && /xmt/.test(m) && /007/.test(m), m);
+}
+
+// ⑮ 停用 / 待审核 / 设备被封 / 失败过多：换账号也没用，绝不偷偷重试
+for (const reason of ['DISABLED', 'PENDING_APPROVAL', 'DEVICE_BANNED', 'TOO_MANY_FAILS']) {
+  const r = await run('employee', { creds: {}, loginStub: () => ({ ok: false, reason, message: 'x' }) });
+  check(`${reason} → 不做旧账号兜底`, r.loginBodies.length === 1, r.loginBodies.map((b) => b.username));
+}
+
+// ⑯ 用户自己在本机存的账号（不是内置那份）：失败了也不替换
+{
+  const stub = () => ({ ok: false, reason: 'BAD_CREDENTIALS', message: '账号或密码不对' });
+  const r = await run('employee', { creds: { employee: { u: 'test', p: 'my-own-pw' } }, loginStub: stub });
+  check('本机自存凭据失败 → 不偷偷换成 xmt', r.loginBodies.length === 1 && r.loginBodies[0].username === 'test', r.loginBodies.map((b) => b.username));
+}
+
+// ⑰ DEV_SEED.on=false：连内置凭据都不认，兜底一起失效
+{
+  const offSrc = quickSrc.replace('var DEV_SEED = {\n    on: true,', 'var DEV_SEED = {\n    on: false,');
+  const stub = () => ({ ok: false, reason: 'NO_SUCH_USER', message: '账号或密码不对' });
+  const r = await run('employee', { creds: { employee: { u: 'test', p: '12345678' } }, loginStub: stub, source: offSrc });
+  check('DEV_SEED 关掉 → 不再兜底 xmt', r.loginBodies.length === 1 && r.loginBodies[0].username === 'test', r.loginBodies.map((b) => b.username));
 }
 
 console.log(`\n结果: 通过 ${pass} / 失败 ${fail}`);

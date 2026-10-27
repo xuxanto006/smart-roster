@@ -596,11 +596,14 @@
   };
 
   /* 开发期内置账号：公网默认同样生效（当前阶段），关掉只需把 on 改 false。
-     ⚠ 这里是明文密码，仓库若是 public 就等于公开。 */
+     ⚠ 这里是明文密码，仓库若是 public 就等于公开。
+     `legacy.u` 是「前端已改叫 test、库里还是旧名」时的兜底（密码沿用同一个）：
+     改名要靠 007_rename_dev_employee.sql，跑完之后这段不会再触发。
+     兜底成功后会在右下角明确提示，绝不偷偷用别的账号进。 */
   var DEV_SEED = {
     on: true,
     manager: { u: 'superadmin', p: 'huawei@123' },
-    employee: { u: 'test', p: '12345678' }
+    employee: { u: 'test', p: '12345678', legacy: { u: 'xmt' } }
   };
 
   /* 目前与 quickAllowed 同语义：默认开 → `?dev=0` 或本机点过「不再显示」才关。
@@ -687,6 +690,36 @@
     return m[2] === '+' ? a + b : a - b;
   }
 
+  /* 「前端显示 test、库里校验的仍是旧名」的兜底：
+     只有拿的确实是 DEV_SEED 里那份内置凭据（账号密码都对得上）、且服务端明说
+     「查无此人 / 密码不对」时才启用；用户自己在本机存的账号一律不替换。
+     `?dev=0`、本机点过「不再显示」、DEV_SEED.on=false 时兜底一并失效。 */
+  function legacyOf(kind, c) {
+    if (!seedAllowed()) return null;
+    var seed = DEV_SEED[kind];
+    if (!seed || !seed.legacy || !seed.legacy.u) return null;
+    if (String(c.u).trim().toLowerCase() !== String(seed.u).trim().toLowerCase()) return null;
+    if (c.p !== seed.p) return null;
+    return { u: seed.legacy.u, p: seed.legacy.p || seed.p };
+  }
+
+  /* 取新题 → 解算式 → 走真实 login 函数（每次调用都用一枚新 token，重试也不例外） */
+  function tryLogin(cred) {
+    return SR.api.captcha(CAP_TTL).then(function (r1) {
+      var d1 = (r1 && r1.data) || {};
+      var ans = solveQuestion(d1.question);
+      if (!d1.ok || !d1.token || ans === null) throw new Error('captcha unavailable');
+      return SR.api.login({
+        username: String(cred.u).trim().toLowerCase(),
+        password: cred.p,
+        device_id: SR.deviceId(),
+        ua: SR.ua(),
+        captcha_token: d1.token,
+        captcha_answer: String(ans)
+      });
+    });
+  }
+
   var QBUSY = false;
   function quickLogin(kind) {
     if (QBUSY || S.busy) return;
@@ -703,17 +736,25 @@
     $('#quickEmp').disabled = true;
     setMsg('正在一键登录…', 'info');
 
-    SR.api.captcha(CAP_TTL).then(function (r1) {
-      var d1 = (r1 && r1.data) || {};
-      var ans = solveQuestion(d1.question);
-      if (!d1.ok || !d1.token || ans === null) throw new Error('captcha unavailable');
-      return SR.api.login({
-        username: String(c.u).trim().toLowerCase(),
-        password: c.p,
-        device_id: SR.deviceId(),
-        ua: SR.ua(),
-        captcha_token: d1.token,
-        captcha_answer: String(ans)
+    var used = String(c.u).trim().toLowerCase();
+    var alt = legacyOf(kind, c);
+
+    tryLogin(c).then(function (res) {
+      var d = (res && res.data) || {};
+      /* 只有这两种失败才值得换旧名再试一次；停用 / 待审核 / 设备被封 / 失败过多都不许换 */
+      if (!alt || d.ok) return res;
+      if (d.reason !== 'BAD_CREDENTIALS' && d.reason !== 'NO_SUCH_USER') return res;
+      return tryLogin(alt).then(function (r2) {
+        var d2 = (r2 && r2.data) || {};
+        if (!d2.ok) {
+          d2.message = '「' + c.u + '」和旧账号「' + alt.u + '」都登不上：先在 Supabase 执行 007 迁移，或在后台把 ' + c.u + ' 建好';
+          return r2;
+        }
+        used = String(alt.u).trim().toLowerCase();
+        try {
+          SR.ui.toast('库里还没有「' + c.u + '」，这次用改名前的 ' + alt.u + ' 登录（跑 007 迁移后就不会再出现）', 'info');
+        } catch (e) {}
+        return r2;
       });
     }).then(function (res) {
       QBUSY = false;
@@ -729,7 +770,7 @@
       if (kind === 'employee' && isMgr) {
         return onFail({ ok: false, message: '这个账号实际是「管理员」身份，请点上面的「管理员身份」' });
       }
-      onSuccess(res, String(c.u).trim().toLowerCase());
+      onSuccess(res, used);
     }).catch(function () {
       QBUSY = false;
       $('#quickMgr').disabled = false;

@@ -1,0 +1,5 @@
+# 导出 Excel 用的模板部件是「参考文件的原始字节」：
+# styles.xml / theme1.xml 必须与参考文件逐字节相同（验证脚本按 SHA256 比对），
+# 任何换行符转换都会让字体/底色/边框对不上，所以这里禁止 git 做 EOL 归一。
+_deploy/tpl/*.xml -text
+_deploy/tpl/meta.json -text

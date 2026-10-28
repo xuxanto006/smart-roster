@@ -482,6 +482,64 @@ if (/S\.grid\[[^\]]+\]\s*\.slot\s*=/.test(mgr.replace(/function setSlot\(k, slot
   say('  [OK]   manager.html: 改班次只走 setSlot（三种看法共用一条写路径）');
 }
 
+// ---------- 4j. 账号中心 · 人员管理 ----------
+say('\n== 4j. staff admin (staff CRUD + bind/unbind) ==');
+const acct = fs.readFileSync(path.join(dir, 'view-account.html'), 'utf8');
+const staffNeed = [
+  ['account: 有「人员」页签', acct, 'data-tab="staff"'],
+  ['account: 人员页容器', acct, 'id="tab-staff"'],
+  ['account: 在职未绑账号的数字挂到页签上', acct, 'id="nStaff"'],
+  ['account: 有新增员工按钮', acct, 'id="stNew"'],
+  ['account: 人员列表容器', acct, 'id="stList"'],
+  ['account: 员工资料弹层', acct, 'id="stDlg"'],
+  ['account: 绑定账号弹层', acct, 'id="bdDlg"'],
+  ['account: 角色选择（员工/只读/经理）', acct, '<option value="viewer">'],
+  ['account: 人员页走独立加载函数', acct, 'function loadStaff(silent)'],
+  ['account: 员工名单直接读 staff 表（经理有 RLS 写权限）', acct, "SR.db.select('staff'"],
+  ['account: 账号绑定关系从 profiles 读（只读）', acct, "SR.db.select('profiles'"],
+  ['account: 新增员工写 staff', acct, "SR.db.insert('staff'"],
+  ['account: 编辑员工按姓名定位写 staff', acct, "SR.db.patch('staff', 'name=eq.'"],
+  ['account: 离职只标记 active=false + left_at', acct, '{ active: false, left_at: s.left_at || ymd }'],
+  ['account: 复职清掉 left_at', acct, '{ active: true, left_at: null }'],
+  ['account: 姓名建好不可改（编辑时只读）', acct, '$("#stName").readOnly = !!s'.replace(/"/g, "'")],
+  ['account: 绑定/换绑走 review approve', acct, "action: 'approve'"],
+  ['account: 解绑走 review unbind（approve 解不开）', acct, "action: 'unbind'"],
+  ['account: 换绑要「先解绑再绑新」', acct, 'function bindSteps('],
+  ['account: 员工解绑后降为只读', acct, 'function roleAfterUnbind('],
+  ['account: 后端没部署 unbind 时说清楚怎么办', acct, '还没有 unbind 动作'],
+  ['review: 新增 unbind 动作', fs.readFileSync(path.join('supabase', 'functions', 'review', 'index.ts'), 'utf8'), "action === 'unbind'"],
+];
+for (const [label, src, needle] of staffNeed) {
+  if (src.includes(needle)) say(`  [OK]   ${label}`);
+  else { problems++; say(`  [FAIL] ${label}: "${needle}" not found`); }
+}
+
+// profiles 前端一律不可写：绑定/解绑必须走 review 函数（service_role）
+const profWrite = [...acct.matchAll(/SR\.db\.(?:insert|upsert|patch|del)\('profiles'/g)];
+if (profWrite.length) {
+  problems++;
+  say(`  [FAIL] view-account.html: 前端直接写 profiles（${profWrite.length} 处），绑定关系必须走 review 函数`);
+} else {
+  say('  [OK]   view-account.html: 不直接写 profiles（绑定/解绑只走 review）');
+}
+
+// 人员纯函数块必须能抽出来单测（tools/test_staff_admin.mjs）
+const saStart = acct.indexOf('/* ===== STAFFADMIN-BLOCK-START ===== */');
+const saEnd = acct.indexOf('/* ===== STAFFADMIN-BLOCK-END ===== */');
+if (saStart < 0 || saEnd <= saStart) {
+  problems++;
+  say('  [FAIL] view-account.html: 缺少 STAFFADMIN-BLOCK 标记（tools/test_staff_admin.mjs 靠它抽源码）');
+} else {
+  const saBlock = acct.slice(saStart, saEnd);
+  const dirty = ['document.', 'navigator.', 'SR.', 'location.', 'localStorage'].filter((x) => saBlock.includes(x));
+  if (dirty.length) {
+    problems++;
+    say(`  [FAIL] view-account.html: STAFFADMIN-BLOCK 里不该有 ${dirty.join(' / ')}（纯函数才能单测）`);
+  } else {
+    say('  [OK]   view-account.html: STAFFADMIN-BLOCK 是纯函数块（无 DOM / 网络 / 会话）');
+  }
+}
+
 // ---------- 5. 体积 ----------
 say('\n== 5. sizes ==');
 for (const f of [...cssFiles, 'auth-core.js', ...files]) {

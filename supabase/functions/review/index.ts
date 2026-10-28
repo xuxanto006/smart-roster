@@ -1,9 +1,10 @@
-// =============================================================
+﻿// =============================================================
 // review/index.ts · 注册审核（排班经理专用）
 //
 // 请求：POST /functions/v1/review
 //   { token, action: "list" }
 //   { token, action: "approve", id, staff_name?, role?, display_name? }
+//   { token, action: "unbind",  id, role? }   ← 解绑员工（员工账号会顺带降为只读）
 //   { token, action: "reject",  id, reason? }
 //   { token, action: "purge",   id }          ← 彻底删除（含 Auth 账号，释放账号名）
 //
@@ -194,6 +195,45 @@ Deno.serve(async (req: Request) => {
           role,
           staff_name: staffName || null,
           display_name: displayName,
+        },
+        200,
+        origin,
+      );
+    }
+
+    // ---------------- 解绑员工 ----------------
+    // 为什么单独一个动作：approve 里 staff_name 传空会「回落到原值」，
+    // 所以它只能绑/换绑，永远解不开。解绑本身又是换绑的前置（唯一索引 + 一人一号）。
+    if (action === 'unbind') {
+      const id = String(body.id ?? '');
+      if (!UUID_RE.test(id)) return fail(origin, 'BAD_ID', '参数不对：缺少账号 id');
+
+      const target = await loadTarget(id);
+      if (!target) return fail(origin, 'NOT_FOUND', '找不到这个账号');
+      if (!target.staff_name) return fail(origin, 'NOT_BOUND', '这个账号本来就没有绑定员工');
+
+      let role = String(body.role ?? '').trim();
+      if (!role) role = target.role;
+      if (!ROLES.includes(role)) return fail(origin, 'BAD_ROLE', ROLE_MSG);
+      // 员工角色必须有员工姓名才看得到班表，解绑后顺带降为只读，避免留下「看不见任何班表」的账号
+      if (role === 'employee') role = 'viewer';
+
+      await pgPatch(`profiles?id=eq.${encodeURIComponent(id)}`, { staff_name: null, role });
+
+      await audit(me, 'review_unbind', target.username, {
+        staff_name: target.staff_name,
+        role,
+        was_role: target.role,
+      });
+
+      return json(
+        {
+          ok: true,
+          id,
+          username: target.username,
+          staff_name: null,
+          role,
+          was_role: target.role,
         },
         200,
         origin,

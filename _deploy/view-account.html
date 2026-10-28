@@ -7,6 +7,11 @@
 <meta name="color-scheme" content="light dark">
 <title>账号中心 · 智能排班</title>
 <link rel="stylesheet" href="ui.css">
+<style>
+  /* 人员页专用：弹层放宽一点、字段两列排（.sheet 默认 400px 装不下六个字段）*/
+  #stDlg .sheet, #bdDlg .sheet { max-width: 520px; max-height: 88vh; overflow: auto; }
+  .form2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+</style>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='24' fill='%231d1d1f'/><text x='50' y='66' font-size='46' font-family='system-ui' font-weight='700' text-anchor='middle' fill='%23fff'>SR</text></svg>">
 </head>
 <body>
@@ -28,6 +33,7 @@
     <h2 class="h2" style="flex:1 1 auto">账号与权限</h2>
     <div class="seg" id="tabs">
       <button type="button" data-tab="review" class="on">待审核 <span id="nReview"></span></button>
+      <button type="button" data-tab="staff">人员 <span id="nStaff"></span></button>
       <button type="button" data-tab="invites">邀请码</button>
       <button type="button" data-tab="accounts">账号</button>
       <button type="button" data-tab="devices">设备</button>
@@ -41,6 +47,25 @@
       通过时请把账号绑到员工名单里的姓名上，否则该员工登录后看不到自己的班表。
     </p>
     <div id="rvList" style="margin-top:12px"><div class="skeleton">载入中…</div></div>
+  </section>
+
+  <!-- ================= 人员 ================= -->
+  <section class="tabpane" id="tab-staff">
+    <div class="stats" id="stStats"></div>
+    <div class="filters">
+      <input class="search" id="stSearch" placeholder="搜索姓名 / 模块 / 岗位">
+      <select class="select" id="stDomain"></select>
+      <select class="select" id="stActive">
+        <option value="">在职 + 离职</option>
+        <option value="1">只看在职</option>
+        <option value="0">只看离职</option>
+      </select>
+      <button class="btn primary sm" id="stNew" type="button">新增员工</button>
+    </div>
+    <p class="hint" style="margin:0 0 12px">
+      姓名是账号绑定的键，<b>建好之后不能改</b>——班表、请假申请、已发布记录都按姓名挂靠。要改名请新增一条，再把账号换绑过去。
+    </p>
+    <div id="stList"><div class="skeleton">载入中…</div></div>
   </section>
 
   <!-- ================= 邀请码 ================= -->
@@ -121,6 +146,79 @@
       <div class="row-btns">
         <button class="btn ghost block" id="ovNo" type="button">取消</button>
         <button class="btn primary block" id="ovYes" type="button">确定</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 人员编辑弹层 -->
+<div class="overlay" id="stDlg">
+  <div class="sheet">
+    <h3 id="stTitle">新增员工</h3>
+    <p class="sub" id="stSub">姓名要和员工名单里的写法一致，建好后不可修改。</p>
+    <div class="form2">
+      <div class="field">
+        <label for="stName">姓名</label>
+        <input class="input" id="stName" maxlength="40" placeholder="例如 谢佳委">
+      </div>
+      <div class="field">
+        <label for="stDomainSel">部门</label>
+        <select class="select" id="stDomainSel"></select>
+      </div>
+      <div class="field">
+        <label for="stModule">模块</label>
+        <input class="input" id="stModule" maxlength="40" placeholder="例如 前台">
+      </div>
+      <div class="field">
+        <label for="stPos">岗位</label>
+        <input class="input" id="stPos" maxlength="40" placeholder="例如 销售顾问">
+      </div>
+      <div class="field">
+        <label for="stLevel">职级</label>
+        <input class="input" id="stLevel" maxlength="20" placeholder="员工">
+      </div>
+      <div class="field">
+        <label for="stJoined">入职日期</label>
+        <input class="input" id="stJoined" type="date">
+      </div>
+    </div>
+    <div class="field" style="margin-top:12px">
+      <label for="stNote">备注</label>
+      <input class="input" id="stNote" maxlength="200" placeholder="选填">
+    </div>
+    <div class="dlg-err" id="stErr"></div>
+    <div class="acts">
+      <div class="row-btns">
+        <button class="btn ghost block" id="stCancel" type="button">取消</button>
+        <button class="btn primary block" id="stSave" type="button">保存</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 绑定账号弹层 -->
+<div class="overlay" id="bdDlg">
+  <div class="sheet">
+    <h3 id="bdTitle">绑定账号</h3>
+    <p class="sub" id="bdSub"></p>
+    <div class="field">
+      <label for="bdAcct">选一个账号</label>
+      <select class="select" id="bdAcct"></select>
+    </div>
+    <div class="field" style="margin-top:12px">
+      <label for="bdRole">角色</label>
+      <select class="select" id="bdRole">
+        <option value="employee">员工（能看自己的班表）</option>
+        <option value="viewer">只读（只能进工作台看）</option>
+        <option value="manager">排班经理</option>
+      </select>
+    </div>
+    <p class="hint" id="bdHint" style="margin:12px 0 0"></p>
+    <div class="dlg-err" id="bdErr"></div>
+    <div class="acts">
+      <div class="row-btns">
+        <button class="btn ghost block" id="bdCancel" type="button">取消</button>
+        <button class="btn primary block" id="bdSave" type="button">确定</button>
       </div>
     </div>
   </div>
@@ -280,7 +378,7 @@
     if (tab === current) return;
     current = tab;
     SR.$$('#tabs button').forEach(function (x) { x.classList.toggle('on', x === b); });
-    ['review', 'invites', 'accounts', 'devices'].forEach(function (t) {
+    ['review', 'staff', 'invites', 'accounts', 'devices'].forEach(function (t) {
       $('#tab-' + t).classList.toggle('show', t === tab);
     });
     reload(tab);
@@ -288,6 +386,7 @@
 
   function reload(tab) {
     if (tab === 'review') return loadReview();
+    if (tab === 'staff') return loadStaff();
     if (tab === 'invites') return loadInvites();
     if (tab === 'accounts') return loadAccounts();
     if (tab === 'devices') return loadDevices();
@@ -652,6 +751,462 @@
     }
   });
 
+  /* ================= 人员 =================
+     为什么读 staff 走 REST、绑账号走 review 函数：
+       · staff 表的 RLS 已经给经理开了写权限（pol_staff_write → is_editor），
+         加人/改资料/离职直接写表最省事；
+       · profiles 前端一律不可写，绑定/换绑/解绑必须走 review（service_role）。
+     姓名是绑定键且有唯一索引，所以编辑时姓名只读，不提供改名。 */
+  /* ===== STAFFADMIN-BLOCK-START ===== */
+  var DOMAINS = [
+    ['3c', '3C'], ['hongmeng', '鸿蒙'], ['zunjie', '尊界'],
+    ['aftersales', '售后'], ['kufang', '库房'], ['admin', '管理'], ['manager', '经理']
+  ];
+
+  function domainText(v) {
+    for (var i = 0; i < DOMAINS.length; i++) if (DOMAINS[i][0] === v) return DOMAINS[i][1];
+    return v || '未分部门';
+  }
+
+  /** 表单值 → 入库值：去空格、截长度、部门白名单、日期非法就置空 */
+  function cleanStaffDraft(raw) {
+    var r = raw || {};
+    function t(v, max) { return String(v == null ? '' : v).trim().slice(0, max); }
+    var domain = t(r.domain, 20);
+    var hit = false;
+    for (var i = 0; i < DOMAINS.length; i++) if (DOMAINS[i][0] === domain) hit = true;
+    var joined = t(r.joined_at, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(joined)) joined = '';
+    return {
+      name: t(r.name, 40),
+      module: t(r.module, 40),
+      position: t(r.position, 40),
+      level: t(r.level, 20) || '员工',
+      domain: hit ? domain : '3c',
+      joined_at: joined,
+      note: t(r.note, 200)
+    };
+  }
+
+  /** 新增前拦一下：空名 / 重名（重名是唯一索引报错，提前说人话） */
+  function staffDraftError(d, opts) {
+    var o = opts || {};
+    if (!d.name) return '请填写姓名';
+    if (o.isNew && (o.names || []).indexOf(d.name) >= 0) {
+      return '员工名单里已经有「' + d.name + '」了，直接编辑那一条就行';
+    }
+    return '';
+  }
+
+  /** 解绑后角色怎么落：员工账号没有员工名就看不到自己的班表，一律降为只读 */
+  function roleAfterUnbind(role) {
+    return role === 'employee' ? 'viewer' : (role || 'employee');
+  }
+
+  /** 绑定计划：换账号要「先解绑旧的、再绑新的」；同一个人只改角色时一步就够。
+      选「先不绑定」而原本绑着人时，就是解绑（等同于行内的解绑按钮）。 */
+  function bindSteps(cur, acctId, role) {
+    var c = cur || {};
+    var steps = [];
+    if (c.id && c.id !== acctId) {
+      steps.push({ op: 'unbind', id: c.id, username: c.username || '' });
+    }
+    if (acctId) {
+      steps.push({ op: 'bind', id: acctId, staff_name: c.staff_name || '', role: role || 'employee' });
+    }
+    return steps;
+  }
+  /* ===== STAFFADMIN-BLOCK-END ===== */
+
+  var ST = { staff: [], accounts: [], editing: null, binding: null };
+
+  function showErr(sel, msg) {
+    var el = $(sel);
+    el.textContent = msg || '';
+    el.classList.toggle('show', !!msg);
+  }
+
+  function closeDlg(sel) {
+    $(sel).classList.remove('show');
+  }
+
+  function dbErrText(res) {
+    var t = String((res && (res.error || res.code)) || '');
+    if (/duplicate|unique/i.test(t)) return '员工名单里已经有这个名字了';
+    if (/does not exist|schema cache/i.test(t)) return '数据库里还没有 staff 表，请先执行 supabase/migrations/001_init.sql';
+    if (/permission|policy|row-level/i.test(t)) return '没有写员工名单的权限（需要排班经理账号）';
+    return t || '保存失败，请稍后重试';
+  }
+
+  function fillOptions(el, pairs, cur, first) {
+    var html = first ? '<option value="">' + esc(first) + '</option>' : '';
+    for (var i = 0; i < pairs.length; i++) {
+      html += '<option value="' + esc(pairs[i][0]) + '"' + (pairs[i][0] === cur ? ' selected' : '') + '>' +
+        esc(pairs[i][1]) + '</option>';
+    }
+    el.innerHTML = html;
+  }
+
+  function bindOf(name) {
+    for (var i = 0; i < ST.accounts.length; i++) {
+      if (ST.accounts[i].staff_name === name) return ST.accounts[i];
+    }
+    return null;
+  }
+
+  function findStaff(name) {
+    for (var i = 0; i < ST.staff.length; i++) if (ST.staff[i].name === name) return ST.staff[i];
+    return null;
+  }
+
+  function loadStaff(silent) {
+    if (!silent) $('#stList').innerHTML = '<div class="skeleton">载入中…</div>';
+    return Promise.all([
+      SR.db.select('staff', 'select=name,module,position,level,domain,active,joined_at,left_at,note&order=active.desc,name.asc'),
+      SR.db.select('profiles', 'select=id,username,display_name,role,status,staff_name&status=eq.active&order=username.asc')
+    ]).then(function (res) {
+      var sr = res[0], pr = res[1];
+      if (!sr || !sr.ok) throw { error: (sr && sr.error) || '读不到员工名单（可能还没执行 001_init.sql）' };
+      if (!pr || !pr.ok) throw { error: (pr && pr.error) || '读不到账号列表' };
+      ST.staff = sr.data || [];
+      ST.accounts = pr.data || [];
+      loaded.staff = true;
+      renderStaff();
+    }).catch(function (e) {
+      $('#stList').innerHTML = '<div class="empty"><b>载入失败</b>' + esc((e && e.error) || '请稍后重试') + '</div>';
+    });
+  }
+
+  function renderStaff() {
+    var q = $('#stSearch').value.trim().toLowerCase();
+    var dom = $('#stDomain').value;
+    var act = $('#stActive').value;
+
+    var onDuty = 0, gone = 0, bound = 0, unbound = 0;
+    (ST.staff || []).forEach(function (s) {
+      if (s.active) {
+        onDuty++;
+        if (bindOf(s.name)) bound++; else unbound++;
+      } else {
+        gone++;
+      }
+    });
+    $('#nStaff').textContent = unbound ? String(unbound) : '';
+    $('#stStats').innerHTML = [
+      ['在职', onDuty, ''],
+      ['已离职', gone, ''],
+      ['已绑账号', bound, 'ok'],
+      ['在职未绑账号', unbound, unbound ? 'warn' : '']
+    ].map(function (x) {
+      return '<div class="stat"><div class="n">' + x[1] + '</div><div class="k">' + esc(x[0]) + '</div></div>';
+    }).join('');
+
+    var list = (ST.staff || []).filter(function (s) {
+      if (dom && s.domain !== dom) return false;
+      if (act === '1' && !s.active) return false;
+      if (act === '0' && s.active) return false;
+      if (!q) return true;
+      return [s.name, s.module, s.position, s.level, s.note].join(' ').toLowerCase().indexOf(q) >= 0;
+    });
+
+    if (!list.length) {
+      $('#stList').innerHTML = '<div class="list"><div class="empty"><b>没有匹配的员工</b>换个关键词，或点「新增员工」加一条</div></div>';
+      return;
+    }
+
+    var html = '<div class="list">';
+    list.forEach(function (s) {
+      var acct = bindOf(s.name);
+      var badges = '<span class="badge">' + esc(domainText(s.domain)) + '</span>';
+      badges += s.active ? ' <span class="badge ok">在职</span>' : ' <span class="badge bad">已离职</span>';
+      if (acct) badges += ' <span class="badge info">账号 ' + esc(acct.username) + '</span>';
+      else if (s.active) badges += ' <span class="badge warn">未绑账号</span>';
+
+      var meta = [];
+      if (s.module) meta.push('<span>模块 ' + esc(s.module) + '</span>');
+      if (s.position) meta.push('<span>岗位 ' + esc(s.position) + '</span>');
+      if (s.level) meta.push('<span>职级 ' + esc(s.level) + '</span>');
+      if (s.joined_at) meta.push('<span>入职 ' + esc(s.joined_at) + '</span>');
+      if (s.left_at) meta.push('<span>离职 ' + esc(s.left_at) + '</span>');
+      if (acct) meta.push('<span>角色 ' + esc(roleText(acct.role)) + '</span>');
+      if (s.note) meta.push('<span>备注 ' + esc(s.note) + '</span>');
+
+      var acts = '<button class="btn ghost sm" type="button" data-act="edit">编辑</button>';
+      if (s.active) {
+        acts += '<button class="btn tint sm" type="button" data-act="bind">' + (acct ? '换绑 / 改角色' : '绑定账号') + '</button>';
+        if (acct) acts += '<button class="btn plain sm" type="button" data-act="unbind">解绑</button>';
+        acts += '<button class="btn danger sm" type="button" data-act="leave">离职</button>';
+      } else {
+        acts += '<button class="btn tint sm" type="button" data-act="back">复职</button>';
+      }
+
+      html += '<div class="row" data-name="' + esc(s.name) + '">' +
+        '<div class="grow">' +
+          '<div class="name">' + esc(s.name) + ' ' + badges + '</div>' +
+          '<div class="meta">' + meta.join('') + '</div>' +
+        '</div>' +
+        '<div class="actions">' + acts + '</div>' +
+      '</div>';
+    });
+    html += '</div>';
+    $('#stList').innerHTML = html;
+  }
+
+  $('#stSearch').addEventListener('input', renderStaff);
+  $('#stDomain').addEventListener('change', renderStaff);
+  $('#stActive').addEventListener('change', renderStaff);
+  $('#stNew').addEventListener('click', function () { openStaffDlg(null); });
+
+  $('#stList').addEventListener('click', function (e) {
+    var b = e.target.closest('button[data-act]');
+    if (!b) return;
+    var row = b.closest('.row');
+    var s = findStaff(row.getAttribute('data-name'));
+    if (!s) return;
+    var act = b.getAttribute('data-act');
+    if (act === 'edit') return openStaffDlg(s);
+    if (act === 'bind') return openBindDlg(s, bindOf(s.name));
+    if (act === 'unbind') return unbindStaff(s, bindOf(s.name), b);
+    if (act === 'leave') return setStaffActive(s, false, b);
+    if (act === 'back') return setStaffActive(s, true, b);
+  });
+
+  /* ---------------- 员工资料弹层 ---------------- */
+  function openStaffDlg(s) {
+    ST.editing = s || null;
+    $('#stTitle').textContent = s ? '编辑 ' + s.name : '新增员工';
+    $('#stSub').textContent = s
+      ? '姓名是账号绑定的键，不能改；要改名请新增一条，再把账号换绑过去。'
+      : '姓名要和员工名单里的写法一致，建好后不可修改。';
+    $('#stName').value = s ? s.name : '';
+    $('#stName').readOnly = !!s;
+    $('#stModule').value = s ? (s.module || '') : '';
+    $('#stPos').value = s ? (s.position || '') : '';
+    $('#stLevel').value = s ? (s.level || '员工') : '员工';
+    $('#stJoined').value = s && s.joined_at ? String(s.joined_at).slice(0, 10) : '';
+    $('#stNote').value = s ? (s.note || '') : '';
+    fillOptions($('#stDomainSel'), DOMAINS, s ? s.domain : '3c', '');
+    showErr('#stErr', '');
+    $('#stDlg').classList.add('show');
+    setTimeout(function () { (s ? $('#stModule') : $('#stName')).focus(); }, 60);
+  }
+
+  $('#stCancel').addEventListener('click', function () { closeDlg('#stDlg'); });
+
+  $('#stSave').addEventListener('click', function () {
+    var btn = this;
+    var s = ST.editing;
+    var d = cleanStaffDraft({
+      name: s ? s.name : $('#stName').value,
+      domain: $('#stDomainSel').value,
+      module: $('#stModule').value,
+      position: $('#stPos').value,
+      level: $('#stLevel').value,
+      joined_at: $('#stJoined').value,
+      note: $('#stNote').value
+    });
+    var err = staffDraftError(d, {
+      isNew: !s,
+      names: (ST.staff || []).map(function (x) { return x.name; })
+    });
+    if (err) { showErr('#stErr', err); return; }
+    showErr('#stErr', '');
+    SR.ui.setLoading(btn, true);
+
+    var task;
+    if (!s) {
+      task = SR.db.insert('staff', {
+        name: d.name,
+        module: d.module,
+        position: d.position,
+        level: d.level,
+        domain: d.domain,
+        active: true,
+        joined_at: d.joined_at || null,
+        note: d.note || null
+      });
+    } else {
+      // 注意：patch 里刻意不含 name —— 改名会级联改掉班表/申请/已发布记录，这里不给口子
+      task = SR.db.patch('staff', 'name=eq.' + encodeURIComponent(s.name), {
+        module: d.module,
+        position: d.position,
+        level: d.level,
+        domain: d.domain,
+        joined_at: d.joined_at || null,
+        note: d.note || null
+      });
+    }
+
+    task.then(function (res) {
+      SR.ui.setLoading(btn, false);
+      if (!res || !res.ok) { showErr('#stErr', dbErrText(res)); return; }
+      closeDlg('#stDlg');
+      SR.ui.toast(s ? '已保存' : '已新增 ' + d.name, 'good');
+      loadStaff(true);
+    }).catch(function (e) {
+      SR.ui.setLoading(btn, false);
+      showErr('#stErr', (e && (e.error || e.message)) || '保存失败');
+    });
+  });
+
+  /* ---------------- 离职 / 复职 ---------------- */
+  function setStaffActive(s, back, btn) {
+    var acct = bindOf(s.name);
+    var desc = back
+      ? '把「' + s.name + '」恢复为在职（只改员工名单，不动账号登录状态）。'
+      : '把「' + s.name + '」标记为离职（只改员工名单，不动账号登录）。' +
+        (acct ? '账号 ' + acct.username + ' 还能登录，要断登录请到「账号」页停用。' : '');
+    ask({
+      title: back ? '恢复在职？' : '标记离职？',
+      desc: desc,
+      okText: back ? '恢复在职' : '标记离职',
+      danger: !back
+    }).then(function (r) {
+      if (!r) return;
+      var now = new Date();
+      var ymd = now.getFullYear() + '-' +
+        String(now.getMonth() + 1).padStart(2, '0') + '-' +
+        String(now.getDate()).padStart(2, '0');
+      btn.disabled = true;
+      SR.db.patch('staff', 'name=eq.' + encodeURIComponent(s.name),
+        back ? { active: true, left_at: null } : { active: false, left_at: s.left_at || ymd }
+      ).then(function (res) {
+        btn.disabled = false;
+        if (!res || !res.ok) { SR.ui.toast(dbErrText(res), 'bad'); return; }
+        SR.ui.toast(back ? '已恢复在职' : '已标记离职', 'good');
+        loadStaff(true);
+      }).catch(function (e) {
+        btn.disabled = false;
+        SR.ui.toast((e && (e.error || e.message)) || '操作失败', 'bad');
+      });
+    });
+  }
+
+  /* ---------------- 绑定 / 换绑 / 解绑 ---------------- */
+  function openBindDlg(s, acct) {
+    ST.binding = { staff: s, cur: acct };
+    $('#bdTitle').textContent = acct ? '换绑 / 改角色' : '绑定账号';
+    $('#bdSub').textContent = acct
+      ? '「' + s.name + '」现在绑的是 ' + acct.username + '（' + roleText(acct.role) + '）。换到别的账号会先解绑它。'
+      : '给「' + s.name + '」选一个账号，绑定后这个人登录就能看到自己的班表。';
+
+    var html = '<option value="">— 先不绑定 —</option>';
+    (ST.accounts || []).forEach(function (a) {
+      var busy = a.staff_name && a.staff_name !== s.name;
+      var label = a.username + (a.display_name ? '（' + a.display_name + '）' : '') +
+        (busy ? ' · 已绑 ' + a.staff_name : '');
+      html += '<option value="' + esc(a.id) + '"' +
+        (acct && acct.id === a.id ? ' selected' : '') +
+        (busy ? ' disabled' : '') + '>' + esc(label) + '</option>';
+    });
+    $('#bdAcct').innerHTML = html;
+    $('#bdRole').value = acct ? acct.role : 'employee';
+    $('#bdHint').textContent = acct
+      ? '换成「只读 / 经理」不需要员工姓名；换成员工必须绑定。'
+      : '员工角色必须先绑定姓名，否则他登录后看不到自己的班表。';
+    showErr('#bdErr', '');
+    $('#bdDlg').classList.add('show');
+  }
+
+  $('#bdCancel').addEventListener('click', function () { closeDlg('#bdDlg'); });
+
+  function bindErrText(e) {
+    var code = e && e.code;
+    var msg = (e && (e.error || e.code)) || '';
+    if (code === 'BAD_ACTION' && /unbind/i.test(String(msg))) {
+      return '换绑要先解绑旧账号，但线上的 review 函数还没有 unbind 动作：请先部署 supabase/functions/review（或到「账号」页手动处理）。';
+    }
+    return msg || '操作失败，请重试';
+  }
+
+  $('#bdSave').addEventListener('click', function () {
+    var btn = this;
+    var st = ST.binding;
+    if (!st) return;
+    var acctId = $('#bdAcct').value;
+    var role = $('#bdRole').value;
+    var steps = bindSteps(
+      { id: st.cur ? st.cur.id : '', username: st.cur ? st.cur.username : '', staff_name: st.staff.name },
+      acctId,
+      role
+    );
+    if (!steps.length) {
+      showErr('#bdErr', '先选一个账号；不想绑可以点取消');
+      return;
+    }
+    var next = null;
+    (ST.accounts || []).forEach(function (a) { if (a.id === acctId) next = a; });
+    if (role === 'employee' && !acctId) {
+      showErr('#bdErr', '员工角色必须绑定一个账号');
+      return;
+    }
+    showErr('#bdErr', '');
+    SR.ui.setLoading(btn, true);
+
+    (function run(i) {
+      if (i >= steps.length) {
+        SR.ui.setLoading(btn, false);
+        closeDlg('#bdDlg');
+        SR.ui.toast(next ? '已绑定 ' + next.username : '已解绑', 'good');
+        loadStaff(true);
+        loadAccounts(true);
+        loadReview(true);
+        return;
+      }
+      var step = steps[i];
+      var req = step.op === 'unbind'
+        ? api('review', { action: 'unbind', id: step.id })
+        : api('review', {
+            action: 'approve',
+            id: step.id,
+            staff_name: step.staff_name,
+            role: step.role,
+            display_name: next ? (next.display_name || next.username) : undefined
+          });
+      req.then(function () { run(i + 1); }).catch(function (e) {
+        SR.ui.setLoading(btn, false);
+        showErr('#bdErr', bindErrText(e));
+      });
+    })(0);
+  });
+
+  function unbindStaff(s, acct, btn) {
+    if (!acct) return;
+    var after = roleAfterUnbind(acct.role);
+    var downgrade = after !== acct.role
+      ? '角色会从「' + roleText(acct.role) + '」降为「' + roleText(after) + '」，'
+      : '';
+    ask({
+      title: '解绑 ' + acct.username + '？',
+      desc: '解绑后这个账号不再对应「' + s.name + '」，' + downgrade + '他就看不到自己的班表了。需要时再绑回来即可。',
+      danger: true,
+      okText: '解绑'
+    }).then(function (r) {
+      if (!r) return;
+      btn.disabled = true;
+      api('review', { action: 'unbind', id: acct.id }).then(function () {
+        SR.ui.toast('已解绑 ' + acct.username, 'good');
+        loadStaff(true);
+        loadAccounts(true);
+        loadReview(true);
+      }).catch(function (e) {
+        btn.disabled = false;
+        SR.ui.toast(bindErrText(e), 'bad');
+      });
+    });
+  }
+
+  /* 两个弹层的关闭：点背景 / Esc */
+  ['stDlg', 'bdDlg'].forEach(function (id) {
+    var el = document.getElementById(id);
+    el.addEventListener('click', function (e) { if (e.target === el) el.classList.remove('show'); });
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Escape') return;
+    if ($('#bdDlg').classList.contains('show')) return closeDlg('#bdDlg');
+    if ($('#stDlg').classList.contains('show')) return closeDlg('#stDlg');
+  });
+
   /* ================= 设备 ================= */
   var DV = { devices: [], bans: [], stats: {} };
 
@@ -795,13 +1350,17 @@
   });
 
   /* ================= 启动 ================= */
+  fillOptions($('#stDomain'), DOMAINS, '', '全部部门');
+  fillOptions($('#stDomainSel'), DOMAINS, '3c', '');
   loadReview();
   loadInvites();
+  loadStaff(true);   // 不切到「人员」页也要有「在职未绑账号」的数字
 
   /* 每 60 秒静默刷新当前页，方便多人协作时看到新申请 */
   setInterval(function () {
     if (document.hidden) return;
     if (current === 'review') loadReview(true);
+    else if (current === 'staff') loadStaff(true);
     else if (current === 'devices') loadDevices(true);
   }, 60000);
 })();

@@ -400,6 +400,54 @@ console.log('\n=== approve ===');
 }
 
 // =============================================================
+console.log('\n=== unbind ===');
+// =============================================================
+{
+  reset();
+  const r = await call(asManager({ action: 'unbind', id: 'not-a-uuid' }));
+  ok('id 不是 uuid → BAD_ID', r.data.code === 'BAD_ID', r.data);
+}
+{
+  reset();
+  const r = await call(asManager({ action: 'unbind', id: '11111111-1111-1111-1111-111111111111' }));
+  ok('账号不存在 → NOT_FOUND', r.data.code === 'NOT_FOUND', r.data);
+}
+{
+  reset(); // emp01 绑着「何广友」
+  const r = await call(asManager({ action: 'unbind', id: '10000000-0000-4000-8000-000000000002' }));
+  ok('员工解绑 → ok:true 且 staff_name 清空', r.data.ok === true && r.data.staff_name === null, r.data);
+  ok('  落库 staff_name=null', patched()?.body?.staff_name === null, patched()?.body);
+  ok('  员工解绑顺带降为只读（否则他看不到任何班表）',
+    patched()?.body?.role === 'viewer' && r.data.role === 'viewer', patched()?.body);
+  ok('  返回原本的角色', r.data.was_role === 'employee', r.data);
+  ok('  写了审计 review_unbind', !!audited('review_unbind'), calls.map((c) => c.path));
+}
+{
+  reset(); // mgr01 本来就没绑员工
+  const r = await call(asManager({ action: 'unbind', id: '10000000-0000-4000-8000-000000000001' }));
+  ok('本来就没绑 → NOT_BOUND', r.data.code === 'NOT_BOUND', r.data);
+  ok('  且没写库', !patched(), calls.map((c) => c.method + ' ' + c.path));
+}
+{
+  reset({
+    profilesById: {
+      '10000000-0000-4000-8000-000000000001': {
+        id: '10000000-0000-4000-8000-000000000001', username: 'mgr01', display_name: '王经理',
+        role: 'manager', status: 'active', staff_name: '何广友',
+      },
+    },
+  });
+  const r = await call(asManager({ action: 'unbind', id: '10000000-0000-4000-8000-000000000001', role: 'manager' }));
+  ok('显式指定角色时按它落库（经理不降级）', r.data.ok === true && patched()?.body?.role === 'manager', patched()?.body);
+}
+{
+  reset();
+  const r = await call(asManager({ action: 'unbind', id: '10000000-0000-4000-8000-000000000002', role: 'god' }));
+  ok('非法角色 → BAD_ROLE', r.data.code === 'BAD_ROLE', r.data);
+  ok('  且没写库', !patched(), calls.map((c) => c.method + ' ' + c.path));
+}
+
+// =============================================================
 console.log('\n=== reject ===');
 // =============================================================
 {

@@ -102,9 +102,15 @@ begin
   end if;
 end $$;
 
--- 执行完看这一行：应为 username=test / status=active / email=test@staff.smart-roster.local / has_password=t
-select p.username, p.role, p.status, u.email,
-       (u.encrypted_password is not null) as has_password
+-- 执行完看这一段（诊断信息，只读）：
+--   期望：test / employee(或你的角色) / active / auth_id 非空 / email=test@staff.smart-roster.local
+--         / has_password=t / identities 含 email
+--   若 auth_id 为空 → test 还没有 auth 用户；若 email 不是 test@… → 邮箱没对齐（把结果贴回来，我按状态补 SQL）
+select p.username, p.role, p.status,
+       u.id            as auth_id,
+       u.email         as auth_email,
+       (u.encrypted_password is not null) as has_password,
+       (select string_agg(i.provider, ',') from auth.identities i where i.user_id = p.id) as identities
   from public.profiles p
   left join auth.users u on u.id = p.id
  where p.username in ('test', 'xmt')

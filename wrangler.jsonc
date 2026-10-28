@@ -1,0 +1,21 @@
+// =============================================================
+// Cloudflare Worker 静态托管配置
+// -------------------------------------------------------------
+// 线上地址：https://smart-roster.xuxanto.workers.dev
+// 仓库里没有 Worker 的 JS 代码 —— 线上就是「静态资源直出」，
+// 所以这里只声明 assets、不带 main 入口，行为与现状一致。
+//
+// 用法（本机执行一次登录，之后每次部署一条命令）：
+//   npx wrangler@latest login
+//   npx wrangler@latest deploy
+//
+// 注意：worker 名字必须是 smart-roster（决定 workers.dev 子域名），
+//       换成别的名字会得到一个不同的线上地址。
+// =============================================================
+{
+  "name": "smart-roster",
+  "compatibility_date": "2026-10-27",
+  "assets": {
+    "directory": "_deploy"
+  }
+}

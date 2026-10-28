@@ -38,6 +38,11 @@
   .rem span { font-size: 13px; color: var(--text-2); line-height: 1.4; }
   .rem b { font-weight: 600; color: var(--text); }
   .rem input:focus-visible { box-shadow: 0 0 0 3px var(--accent-soft); }
+  /* 一键登录时「逐字填入」的高亮：让用户看清这次用的是哪个账号 */
+  .input.typing {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-soft);
+  }
 </style>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='24' fill='%231d1d1f'/><text x='50' y='66' font-size='46' font-family='system-ui' font-weight='700' text-anchor='middle' fill='%23fff'>SR</text></svg>">
 </head>
@@ -720,6 +725,38 @@
     });
   }
 
+  /* 一键登录不「瞬间填好」：把账号、密码逐字打进上面那两个输入框，
+     用户能看清楚这次用的是谁；打完再发请求，失败了还能直接在表单里改。
+     每字 45ms（12 个字符约 0.5 秒），比机器打字还快，但眼睛能跟上。 */
+  var TYPE_MS = 45;
+  function typeInto(input, text) {
+    return new Promise(function (resolve) {
+      if (!input) { resolve(); return; }
+      var s = String(text == null ? '' : text);
+      input.value = '';
+      try { input.focus(); } catch (e) {}
+      if (input.classList) input.classList.add('typing');
+      var i = 0;
+      (function step() {
+        if (i >= s.length) {
+          if (input.classList) input.classList.remove('typing');
+          resolve();
+          return;
+        }
+        input.value += s.charAt(i++);
+        setTimeout(step, TYPE_MS);
+      })();
+    });
+  }
+
+  /* 手机上一键登录时，表单可能在屏幕外：先滚到输入框，别让「打字」看不见 */
+  function revealForm() {
+    try {
+      var el = $('#u');
+      if (el && el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    } catch (e) {}
+  }
+
   var QBUSY = false;
   function quickLogin(kind) {
     if (QBUSY || S.busy) return;
@@ -734,17 +771,27 @@
     QBUSY = true;
     $('#quickMgr').disabled = true;
     $('#quickEmp').disabled = true;
-    setMsg('正在一键登录…', 'info');
+    revealForm();
 
     var used = String(c.u).trim().toLowerCase();
     var alt = legacyOf(kind, c);
 
-    tryLogin(c).then(function (res) {
+    setMsg('正在填入账号…', 'info');
+    typeInto($('#u'), used).then(function () {
+      setMsg('正在填入密码…', 'info');
+      return typeInto($('#p'), c.p);
+    }).then(function () {
+      setMsg('正在一键登录…', 'info');
+      return tryLogin(c);
+    }).then(function (res) {
       var d = (res && res.data) || {};
       /* 只有这两种失败才值得换旧名再试一次；停用 / 待审核 / 设备被封 / 失败过多都不许换 */
       if (!alt || d.ok) return res;
       if (d.reason !== 'BAD_CREDENTIALS' && d.reason !== 'NO_SUCH_USER') return res;
-      return tryLogin(alt).then(function (r2) {
+      setMsg('「' + c.u + '」还登不上，正在改用旧账号 ' + alt.u + '…', 'info');
+      return typeInto($('#u'), String(alt.u).trim().toLowerCase()).then(function () {
+        return tryLogin(alt);
+      }).then(function (r2) {
         var d2 = (r2 && r2.data) || {};
         if (!d2.ok) {
           d2.message = '「' + c.u + '」和旧账号「' + alt.u + '」都登不上：先在 Supabase 执行 007 迁移，或在后台把 ' + c.u + ' 建好';
@@ -768,7 +815,12 @@
         return onFail({ ok: false, message: '这个账号实际是「员工」身份，请点下面的「普通用户身份」' });
       }
       if (kind === 'employee' && isMgr) {
-        return onFail({ ok: false, message: '这个账号实际是「管理员」身份，请点上面的「管理员身份」' });
+        return onFail({
+          ok: false,
+          message: role === 'viewer'
+            ? '这个账号是「只读(viewer)」身份，只能进工作台看，进不了员工端；把它的 role 改成 employee 才能测员工端（见 supabase/migrations/008_dev_test_employee.sql）'
+            : '这个账号实际是「管理员」身份，请点上面的「管理员身份」'
+        });
       }
       onSuccess(res, used);
     }).catch(function () {

@@ -250,6 +250,18 @@ const quickNeed = [
   ['login: 兜底成功要用 toast 点明旧账号', "改名前的 ' + alt.u + ' 登录"],
   ['login: 两个都失败要说清楚（指向 007）', '先在 Supabase 执行 007 迁移'],
   ['login: 成功后按实际登录的账号写会话', 'onSuccess(res, used)'],
+  /* 点一下要看得见「账号、密码被逐字打进输入框」，而不是瞬间填好 */
+  ['login: 逐字填入是独立函数（可单测）', 'function typeInto(input, text)'],
+  ['login: 每字 45ms（眼睛跟得上）', 'var TYPE_MS = 45;'],
+  ['login: 打字期间给输入框高亮', "input.classList.add('typing')"],
+  ['login: 打完收掉高亮', "input.classList.remove('typing')"],
+  ['login: 高亮样式真的存在', '.input.typing'],
+  ['login: 手机端先滚到表单再打字', 'function revealForm()'],
+  ['login: 打字前提示「正在填入账号」', "'正在填入账号…'"],
+  ['login: 打字后提示「正在填入密码」', "'正在填入密码…'"],
+  ['login: 兜底换账号时输入框也跟着改', "typeInto($('#u'), String(alt.u).trim().toLowerCase())"],
+  ['login: viewer 点普通用户要单独解释', '只读(viewer)'],
+  ['login: viewer 的出口指向 008 迁移', '008_dev_test_employee.sql'],
 ];
 for (const [label, needle] of quickNeed) {
   if (loginSrc.includes(needle)) say(`  [OK]   ${label}`);

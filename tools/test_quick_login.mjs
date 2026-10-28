@@ -26,11 +26,24 @@ function check(name, cond, extra) {
   else { fail++; console.log(`  ✗ ${name}${extra !== undefined ? ' → ' + JSON.stringify(extra) : ''}`); }
 }
 
-// 假 DOM：只需要 textContent / hidden / value / focus
+// 假 DOM：需要 textContent / hidden / value / focus / classList / scrollIntoView
+// （一键登录会「逐字填入」两个输入框，所以 input 还要记 class 与滚动次数）
 function makeDom() {
   const els = {};
   const grab = (id) => {
-    if (!els[id]) els[id] = { id, textContent: '', hidden: false, value: '', focus() {} };
+    if (!els[id]) {
+      els[id] = {
+        id, textContent: '', hidden: false, value: '', focusCount: 0, scrollCount: 0,
+        _cls: new Set(),
+        focus() { this.focusCount++; },
+        scrollIntoView() { this.scrollCount++; },
+        classList: {
+          add(c) { els[id]._cls.add(c); },
+          remove(c) { els[id]._cls.delete(c); },
+          contains(c) { return els[id]._cls.has(c); }
+        }
+      };
+    }
     return els[id];
   };
   return { els, $: (sel) => grab(sel.replace(/^#/, '')) };
@@ -50,10 +63,13 @@ async function run(kind, opts) {
     setItem: (k, v) => { if (k === 'sr_quick_cred_v1') { const p = JSON.parse(v); Object.keys(p).forEach((x) => { store[x] = p[x]; }); } },
     removeItem: () => {}
   };
-  const out = { msg: null, toast: null, result: null, loginBody: null, loginBodies: [], captchaCalls: 0, question: o.question || '8 - 4 = ?' };
+  const out = { msg: null, toast: null, result: null, loginBody: null, loginBodies: [], captchaCalls: 0, question: o.question || '8 - 4 = ?', ticks: [], msgs: [] };
 
   let settle;
   const done = new Promise((r) => { settle = r; });
+  /* vm 沙箱没有 setTimeout（那是宿主函数），而「逐字填入」靠它驱动：
+     这里注入一个真·定时器并记下每次的延时，既让打字跑起来、又能验证它确实一字一顿 */
+  const ticks = out.ticks;
   const sandbox = {
     location: {
       protocol: o.protocol || 'https:',
@@ -67,7 +83,8 @@ async function run(kind, opts) {
     $: dom.$,
     S: { busy: false, capDead: false },
     CAP_TTL: 13,
-    setMsg: (t) => { out.msg = t; },
+    setTimeout: (fn, ms) => { ticks.push(ms); return setTimeout(fn, 0); },
+    setMsg: (t) => { out.msg = t; out.msgs.push(t); },
     onFail: (d) => { out.result = { kind: 'fail', d }; settle(); },
     onSuccess: (res, u) => { out.result = { kind: 'ok', username: u, res }; settle(); },
     SR: {
@@ -89,7 +106,7 @@ async function run(kind, opts) {
   vm.createContext(sandbox);
   vm.runInContext(o.source || quickSrc, sandbox);
   sandbox.__ql(kind);
-  const timer = new Promise((r) => setTimeout(() => r('timeout'), 2000));
+  const timer = new Promise((r) => setTimeout(() => r('timeout'), 8000));
   const raced = await Promise.race([done, timer]);
   out.timeout = raced === 'timeout';
   out.dom = dom.els;
@@ -245,6 +262,49 @@ for (const reason of ['DISABLED', 'PENDING_APPROVAL', 'DEVICE_BANNED', 'TOO_MANY
   const stub = () => ({ ok: false, reason: 'NO_SUCH_USER', message: '账号或密码不对' });
   const r = await run('employee', { creds: { employee: { u: 'test', p: '12345678' } }, loginStub: stub, source: offSrc });
   check('DEV_SEED 关掉 → 不再兜底 xmt', r.loginBodies.length === 1 && r.loginBodies[0].username === 'test', r.loginBodies.map((b) => b.username));
+}
+
+// ⑱ 「逐字填入」：点一下要看得见账号、密码被打进上面两个输入框
+{
+  const r = await run('employee', { creds: {}, role: 'employee' });
+  check('一键登录不卡住（没触发 harness 超时）', r.timeout === false, r.timeout);
+  check('账号框最终是 test', r.dom.u.value === 'test', r.dom.u.value);
+  check('密码框最终是 12345678', r.dom.p.value === '12345678', r.dom.p.value);
+  check('真的是逐字打（4+8 个字符 → 12 次定时器）', r.ticks.length === 12, r.ticks.length);
+  check('每字间隔 45ms（TYPE_MS）', r.ticks.every((ms) => ms === 45), r.ticks);
+  check('打完把高亮 class 收掉', !r.dom.u.classList.contains('typing') && !r.dom.p.classList.contains('typing'), [...r.dom.u._cls]);
+  check('两个输入框都拿到了焦点', r.dom.u.focusCount >= 1 && r.dom.p.focusCount >= 1, [r.dom.u.focusCount, r.dom.p.focusCount]);
+  check('先把表单滚到可见区域再打字', r.dom.u.scrollCount >= 1, r.dom.u.scrollCount);
+  check('提示语按「账号 → 密码 → 登录」推进',
+    r.msgs.includes('正在填入账号…') && r.msgs.includes('正在填入密码…') && r.msgs.includes('正在一键登录…'), r.msgs);
+  check('打字在前、登录在后（账号框已被清空重填）', r.loginBody && r.loginBody.username === 'test', r.loginBody && r.loginBody.username);
+}
+
+// ⑲ 兜底换成 xmt 时，输入框里的账号也要跟着逐字改成 xmt（不能只换请求体）
+{
+  const stub = (b) => b.username === 'test'
+    ? { ok: false, reason: 'NO_SUCH_USER', message: '账号或密码不对' }
+    : { ok: true, profile: { role: 'employee' } };
+  const r = await run('employee', { creds: {}, loginStub: stub });
+  check('兜底后输入框显示 xmt', r.dom.u.value === 'xmt', r.dom.u.value);
+  check('兜底只重打账号、不再重打密码', r.ticks.length === 12 + 3, r.ticks.length);
+  check('兜底这段也把高亮收掉了', !r.dom.u.classList.contains('typing'));
+}
+
+// ⑳ test 目前是 viewer（只读）：点「普通用户」必须拦住，并指向 008 迁移
+{
+  const r = await run('employee', { creds: {}, role: 'viewer' });
+  const m = (r.result && r.result.d && r.result.d.message) || '';
+  check('viewer 点普通用户 → 不进去', r.result && r.result.kind === 'fail', r.result && r.result.kind);
+  check('报错点名「只读(viewer)」', /只读\(viewer\)/.test(m), m);
+  check('报错指向 008 迁移', /008_dev_test_employee\.sql/.test(m), m);
+}
+
+// ㉑ 没存凭据 + 内置关掉：一个字都不许打（不能假装在登录）
+{
+  const r = await run('employee', { creds: {}, search: '?dev=0' });
+  check('没有可用凭据 → 不逐字填入', r.ticks.length === 0, r.ticks.length);
+  check('没有可用凭据 → 账号框保持空', !r.dom.u || r.dom.u.value === '', r.dom.u && r.dom.u.value);
 }
 
 console.log(`\n结果: 通过 ${pass} / 失败 ${fail}`);

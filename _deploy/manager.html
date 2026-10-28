@@ -205,6 +205,7 @@
       <button type="button" data-view="day">按天</button>
     </div>
     <button class="btn plain sm" id="fsBtn" type="button">全屏编辑</button>
+    <button class="btn plain sm" id="xlsxBtn" type="button" title="把当前月的班表导出成 Excel：版式与门店现用的参考表一致（列宽/行高/字体/合并/冻结全照抄）">导出 Excel</button>
     <span class="hint" id="viewHint" style="margin:0">点日期表头：看当天所有人</span>
   </div>
 
@@ -304,6 +305,7 @@
 
 <script src="auth-core.js"></script>
 <script src="scheduler.js"></script>
+<script src="xlsx-lite.js"></script>
 <script>
 (function () {
   'use strict';
@@ -427,7 +429,287 @@
   }
   /* ===== MGRVIEW-BLOCK-END ===== */
 
-  function dayIdxOfWeek() { return mgrDayIdx(S.week, new Date()); }
+  /* ===== ROSTEREXPORT-BLOCK-START =====
+     导出 Excel 班表的「纯口径」（不碰 DOM / 网络，单测 tools/test_roster_export.mjs）：
+
+       · 导出哪个月：选中那周的**第 4 天（周四）**落在哪个月就是哪个月 ——
+         2026-09-28 这一周里有 9/28-9/30 和 10/1-10/4，周四已是 10 月，按 10 月导。
+       · 版式：完全照参考表 —— 首列是「含当月 1 号那一周的周一」，往后铺 5 周 × 7 天
+         = 35 个日列（E..AM）；不在当月的日子保留样式但整列隐藏。
+       · 班次写法：早班 / 中班2 / 晚班2 / 开店 / 闭店 / "/" —— 与参考表
+         dataValidation 的词表一致，表里自带的 COUNTIF 统计列才能算得出来。
+       · 人员行：按参考表的姓名顺序占位（参考表 7..101 行），对不上号的格子
+         整行 hidden="1"，不破坏下面的合并区与公式。 */
+  var ROSTER_STORE = '华为智能生活馆（深圳卓悦中心）';
+  var ROSTER_DAY_COUNT = 35;               /* 参考表 E..AM = 5 周 × 7 天 */
+  var ROSTER_DAY_COL_FIRST = 5;            /* E 列 = 第 5 列 */
+  var ROSTER_SLOT_TEXT = { early: '早班', mid: '中班2', night: '晚班2', rest: '/' };
+
+  function rstPad(n) { return (n < 10 ? '0' : '') + n; }
+  function rstYmd(d) { return d.getFullYear() + '-' + rstPad(d.getMonth() + 1) + '-' + rstPad(d.getDate()); }
+  function rstAdd(d, n) { return new Date(d.getFullYear(), d.getMonth(), d.getDate() + n); }
+
+  /* Excel 日期序列号（1900 体系，含 1900-02-29 的历史 bug：起点取 1899-12-30） */
+  function rostSerial(d) {
+    return Math.round((Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) - Date.UTC(1899, 11, 30)) / 86400000);
+  }
+
+  function rostColLetter(n) {
+    var s = '';
+    while (n > 0) { var m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = Math.floor((n - 1 - m) / 26); }
+    return s;
+  }
+
+  /* week_key（周一）→ 该周所属的月；跨月周按周四所在月算 */
+  function rostMonthOfWeek(weekYmd) {
+    var p = String(weekYmd || '').split('-').map(Number);
+    if (p.length !== 3 || !p[0] || !p[1] || !p[2]) return '';
+    var d = new Date(p[0], p[1] - 1, p[2] + 3);
+    return d.getFullYear() + '-' + rstPad(d.getMonth() + 1);
+  }
+
+  /* ym -> 35 个日列（列号 / 日期 / 序列号 / 是否在当月 / 属于哪一周 / 周内第几天） */
+  function rostMonthGrid(ym, dayCount) {
+    var n = dayCount || ROSTER_DAY_COUNT;
+    var p = String(ym).split('-').map(Number);
+    if (p.length !== 2 || !p[0] || !p[1]) return { ym: ym, start: '', weeks: [], cols: [] };
+    var first = new Date(p[0], p[1] - 1, 1);
+    var dow = first.getDay();
+    var start = rstAdd(first, -(dow === 0 ? 6 : dow - 1));
+    var cols = [], weeks = [];
+    for (var i = 0; i < n; i++) {
+      var d = rstAdd(start, i);
+      var w = rstYmd(rstAdd(start, Math.floor(i / 7) * 7));
+      if (weeks.indexOf(w) < 0) weeks.push(w);
+      cols.push({
+        col: ROSTER_DAY_COL_FIRST + i,
+        letter: rostColLetter(ROSTER_DAY_COL_FIRST + i),
+        date: rstYmd(d),
+        serial: rostSerial(d),
+        inMonth: (d.getFullYear() + '-' + rstPad(d.getMonth() + 1)) === ym,
+        weekKey: w,
+        dayIdx: i % 7
+      });
+    }
+    return { ym: ym, start: rstYmd(start), weeks: weeks, cols: cols };
+  }
+
+  /* 系统里的 slot/role → 参考表的写法 */
+  function rostCellText(cell) {
+    var slot = (cell && cell.slot) || '';
+    if (!slot) return '';
+    if (slot === 'rest') return '/';
+    if (slot === 'early') return (cell.role === 'open') ? '开店' : ROSTER_SLOT_TEXT.early;
+    if (slot === 'mid') return ROSTER_SLOT_TEXT.mid;
+    if (slot === 'night') return (cell.role === 'close') ? '闭店' : ROSTER_SLOT_TEXT.night;
+    return '';
+  }
+
+  /* 员工 → 参考表行号：先按姓名各就各位，剩下的人从空行里补；
+     对不上的参考行留空（导出时该行 hidden="1"）。 */
+  function rostRowPlan(names, refNames, firstRow) {
+    var used = {}, pending = [], i;
+    var byName = {};
+    for (i = 0; i < refNames.length; i++) byName[String(refNames[i])] = firstRow + i;
+    for (i = 0; i < names.length; i++) {
+      var r = byName[String(names[i])];
+      if (r && !used[r]) used[r] = names[i];
+      else pending.push(names[i]);
+    }
+    var free = [];
+    for (i = 0; i < refNames.length; i++) if (!used[firstRow + i]) free.push(firstRow + i);
+    var overflow = [];
+    for (i = 0; i < pending.length; i++) {
+      if (free.length) used[free.shift()] = pending[i];
+      else overflow.push(pending[i]);
+    }
+    var rows = [];
+    for (i = 0; i < refNames.length; i++) rows.push({ row: firstRow + i, name: used[firstRow + i] || '' });
+    return { rows: rows, overflow: overflow };
+  }
+
+  /* 人数统计区（参考表 102..107 行）：早班 / 中班2 / 晚班 / 出勤 / 休息 / 全员出勤 */
+  function rostStats(o) {
+    var out = {};
+    for (var i = 0; i < o.cols.length; i++) {
+      var col = o.cols[i].letter, early = 0, mid = 0, night = 0, rest = 0, all = 0, r, t;
+      for (r = o.frontFirst; r <= o.frontLast; r++) {
+        t = o.cellOf(r, col);
+        if (!t) continue;
+        if (t === '早班' || t === '早班2' || t === '开店') early++;
+        else if (t === '中班1' || t === '中班2') mid++;
+        else if (t === '晚班1' || t === '晚班2' || t === '闭店' || t === '3-12') night++;
+        else if (t === '/' || t === '年假' || t === '休假' || t === '事假') rest++;
+      }
+      for (r = o.firstRow; r <= o.lastRow; r++) {
+        t = o.cellOf(r, col);
+        if (t && t !== '/' && t !== '请假' && t !== '调休') all++;
+      }
+      out[col + '102'] = early;
+      out[col + '103'] = mid;
+      out[col + '104'] = night;
+      out[col + '105'] = early + mid + night;
+      out[col + '106'] = rest;
+      out[col + '107'] = all;
+    }
+    return out;
+  }
+
+  /* 35 个 <col>：宽度/样式照参考表，不在当月的日子 hidden="1" */
+  function rostDayCols(cols, defs) {
+    var out = [];
+    for (var i = 0; i < cols.length; i++) {
+      var d = (defs && defs[i]) || {};
+      out.push('<col min="' + cols[i].col + '" max="' + cols[i].col + '" width="' + (d.width || 12.625) + '"' +
+        (d.style ? ' style="' + d.style + '"' : '') + (cols[i].inMonth ? '' : ' hidden="1"') + ' customWidth="1"/>');
+    }
+    return out.join('');
+  }
+
+  /* 名册 + 班次 → xlsx-lite 需要的 ctx（纯函数；导出与单测共用这一条装配路径） */
+  function rostCtx(o) {
+    var ym = String(o.ym || '');
+    var meta = o.meta;
+    var staff = o.staff || [];
+    var cells = o.cells || {};                 /* "姓名|weekKey|day" → {slot, role} */
+    var grid = rostMonthGrid(ym);
+    var plan = rostRowPlan(staff.map(function (p) { return p.name; }), meta.refNames, meta.personFirst);
+    var byName = {};
+    staff.forEach(function (p) { byName[p.name] = p; });
+
+    var text = {}, num = {}, hidden = [], shown = 0;
+    var mon = Number(ym.slice(5, 7));
+
+    /* 标题：参考表 B1 里原本就带「换行 + 空格」，照抄，视觉才一致 */
+    text.B1 = ROSTER_STORE + mon + '月排班表\n ';
+
+    /* 每个日列：日期序列号 + 该列所有人员行的班次 */
+    grid.cols.forEach(function (c) { num[c.letter + '3'] = c.serial; });
+
+    for (var i = 0; i < plan.rows.length; i++) {
+      var item = plan.rows[i], r = item.row;
+      if (!item.name) { hidden.push(r); continue; }
+      shown++;
+      var p = byName[item.name] || {};
+      num['A' + r] = shown;                       /* 序号：只数真正有人的行，不跳号 */
+      text['B' + r] = p.position || p.module || '';
+      text['C' + r] = '';                         /* 工号：库里没有这一列，留空 */
+      text['D' + r] = item.name;
+      for (var k = 0; k < grid.cols.length; k++) {
+        var gc = grid.cols[k];
+        text[gc.letter + r] = rostCellText(cells[item.name + '|' + gc.weekKey + '|' + gc.dayIdx]);
+      }
+    }
+
+    /* 人数统计区：参考表 102..107 行，按「前场体验顾问」的行区间算 */
+    var stats = rostStats({
+      cols: grid.cols,
+      firstRow: meta.personFirst,
+      lastRow: meta.personLast,
+      frontFirst: meta.stats.frontFirst,
+      frontLast: meta.stats.frontLast,
+      cellOf: function (row, col) { return text[col + row] || ''; }
+    });
+    Object.keys(stats).forEach(function (k) { num[k] = stats[k]; });
+
+    return {
+      ym: ym,
+      mon: mon,
+      grid: grid,
+      text: text,
+      num: num,
+      hiddenRows: hidden,
+      shown: shown,
+      overflow: plan.overflow,
+      sheet: mon + '月班表',
+      title: ROSTER_STORE + mon + '月排班表',
+      monthText: (ym === meta.ym) ? meta.monthText : {},
+      dayCols: rostDayCols(grid.cols, meta.dayCols),
+      file: ROSTER_STORE.replace(/（/g, '(').replace(/）/g, ')') + '-' + ym + '月班表.xlsx'
+    };
+  }
+  /* ===== ROSTEREXPORT-BLOCK-END ===== */
+
+  /* ---------------- 导出 Excel（版式复用参考文件模板） ----------------
+     数据：本月 5 个 week_key 的 shifts + 在职员工名册；模板：_deploy/tpl/。
+     模板只取一次（fetch 后缓存），之后每次导出都是本地拼装，不再走网络。 */
+  var ROSTER_TPL = null;
+
+  function loadRosterTpl() {
+    if (ROSTER_TPL) return Promise.resolve(ROSTER_TPL);
+    var names = ['sheet', 'styles', 'theme', 'workbook', 'workbook-rels', 'rels', 'content-types', 'app', 'core'];
+    var jobs = names.map(function (n) {
+      return fetch('tpl/' + n + '.xml', { cache: 'force-cache' }).then(function (r) {
+        if (!r.ok) throw new Error('模板 tpl/' + n + '.xml 读不到（HTTP ' + r.status + '）');
+        return r.text();
+      });
+    });
+    jobs.push(fetch('tpl/meta.json', { cache: 'force-cache' }).then(function (r) {
+      if (!r.ok) throw new Error('模板 tpl/meta.json 读不到（HTTP ' + r.status + '）');
+      return r.json();
+    }));
+    return Promise.all(jobs).then(function (out) {
+      var tpl = {};
+      for (var i = 0; i < names.length; i++) tpl[names[i]] = out[i];
+      tpl.meta = out[names.length];
+      ROSTER_TPL = tpl;
+      return tpl;
+    });
+  }
+
+  function rosterBtnLabel() {
+    var ym = rostMonthOfWeek(S.week);
+    return '导出 Excel' + (ym ? '（' + Number(ym.slice(5, 7)) + '月）' : '');
+  }
+
+  function exportRoster() {
+    if (!S.week) { SR.ui.toast('先等本周班表载入', 'bad'); return; }
+    var ym = rostMonthOfWeek(S.week);
+    var grid = rostMonthGrid(ym);
+    var btn = $('#xlsxBtn');
+    btn.disabled = true;
+    setSave('正在生成 Excel…', '');
+
+    Promise.all([
+      loadRosterTpl(),
+      SR.db.select('shifts', 'week_key=in.(' + grid.weeks.join(',') + ')&select=staff_name,day,slot,role')
+    ]).then(function (res) {
+      var tpl = res[0], sh = res[1], meta = tpl.meta;
+      if (sh.http === 401) { reauth(); return; }
+      if (!sh.ok) throw new Error(sh.error || '班次读取失败');
+
+      /* "姓名|weekKey|day" → 格子 */
+      var cells = {};
+      (sh.data || []).forEach(function (row) {
+        cells[row.staff_name + '|' + row.week_key + '|' + row.day] = { slot: row.slot || '', role: row.role || null };
+      });
+      var hasAny = {};
+      (sh.data || []).forEach(function (row) { if (row.slot) hasAny[row.week_key] = 1; });
+
+      var ctx = rostCtx({ ym: ym, meta: meta, staff: S.staff, cells: cells });
+      XLSXLITE.save(XLSXLITE.build(tpl, ctx), ctx.file);
+
+      setSave('Excel 已导出', 'ok');
+      var blank = grid.weeks.filter(function (w) { return !hasAny[w]; });
+      var inMonth = grid.cols.filter(function (c) { return c.inMonth; }).length;
+      SR.ui.toast('已导出 ' + ctx.mon + ' 月班表：' + ctx.shown + ' 人 × ' + inMonth + ' 天' +
+        (blank.length ? '（' + blank.length + ' 周还没排班，对应日期为空）' : ''), 'good');
+      if (ctx.overflow.length) {
+        SR.ui.toast('参考表只有 ' + meta.personCount + ' 个人员行，这 ' +
+          ctx.overflow.length + ' 人没排进去：' + ctx.overflow.join('、'), 'bad');
+      }
+    }).catch(function (e) {
+      setSave('导出失败', 'bad');
+      var msg = String(e && e.message ? e.message : e);
+      SR.ui.toast('导出失败：' + msg, 'bad');
+      if (/tpl\/|模板/.test(msg)) {
+        SR.ui.toast('先在本机跑一次 node tools/build_roster_tpl.mjs 生成 _deploy/tpl/ 再部署', 'bad');
+      }
+    }).then(function () {
+      btn.disabled = false;
+    });
+  }
+
 
   function esc(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
@@ -455,6 +737,7 @@
     S.dirty = {};
     setSave('载入中…', '');
     $('#range').textContent = rangeText(week);
+    $('#xlsxBtn').textContent = rosterBtnLabel();   /* 导出按钮上直接标明「几月」 */
     var sk = '<div class="skeleton">正在载入 ' + esc(rangeText(week)) + ' 的班表…</div>';
     $('#sheetWrap').innerHTML = sk;
     $('#overviewWrap').innerHTML = sk;
@@ -901,6 +1184,7 @@
   });
 
   $('#fsBtn').addEventListener('click', function () { setFs(!S.fs); });
+  $('#xlsxBtn').addEventListener('click', exportRoster);
   $('#fsExit').addEventListener('click', function () { setFs(false); });
 
   $('#overviewWrap').addEventListener('click', function (e) {

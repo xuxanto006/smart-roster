@@ -540,6 +540,90 @@ if (saStart < 0 || saEnd <= saStart) {
   }
 }
 
+// ---------- 4k. 导出 Excel 班表（照抄参考文件版式） ----------
+say('\n== 4k. roster xlsx export (template = reference file) ==');
+const tplDir = path.join(dir, 'tpl');
+const xlsxLite = fs.readFileSync(path.join(dir, 'xlsx-lite.js'), 'utf8');
+const tplMeta = JSON.parse(fs.readFileSync(path.join(tplDir, 'meta.json'), 'utf8'));
+const xlsxNeed = [
+  ['manager: 工具栏有「导出 Excel」按钮', mgr, 'id="xlsxBtn"'],
+  ['manager: 按钮文案带车型月（几月）', mgr, '导出 Excel'],
+  ['manager: 引入了 xlsx-lite.js', mgr, '<script src="xlsx-lite.js"></script>'],
+  ['manager: 导出走独立函数', mgr, 'function exportRoster()'],
+  ['manager: 模板只取一次并缓存', mgr, 'var ROSTER_TPL = null'],
+  ['manager: 模板部件从 tpl/ 取', mgr, "fetch('tpl/' + n + '.xml'"],
+  ['manager: 读当月 5 周的班次（week_key in）', mgr, 'week_key=in.('],
+  ['manager: 拼装交给 XLSXLITE.build', mgr, 'XLSXLITE.build(tpl, ctx)'],
+  ['manager: 下载交给 XLSXLITE.save', mgr, 'XLSXLITE.save('],
+  ['manager: 导出前先等本周班表载入', mgr, "SR.ui.toast('先等本周班表载入'"],
+  ['manager: 模板缺失时给出补救提示', mgr, 'node tools/build_roster_tpl.mjs'],
+  ['xlsx-lite: 有 ZIP 打包', xlsxLite, 'function zip(entries, now)'],
+  ['xlsx-lite: 有占位符替换', xlsxLite, 'function render(tpl, ctx)'],
+  ['xlsx-lite: 有 CRC-32（zip 必需）', xlsxLite, 'function crc32(bytes)'],
+  ['xlsx-lite: 样式/主题原样进包（不替换）', xlsxLite, "(key === 'styles' || key === 'theme')"],
+  ['xlsx-lite: 浏览器 + Node 双用', xlsxLite, 'module.exports = XLSXLITE'],
+];
+for (const [label, src, needle] of xlsxNeed) {
+  if (src.includes(needle)) say(`  [OK]   ${label}`);
+  else { problems++; say(`  [FAIL] ${label}: "${needle}" not found`); }
+}
+
+// 模板 9 个部件必须都在（少一个 Excel 就打不开）
+const tplParts = ['sheet.xml', 'styles.xml', 'theme1.xml', 'workbook.xml', 'workbook-rels.xml',
+  'rels.xml', 'content-types.xml', 'app.xml', 'core.xml', 'meta.json'];
+const lost = tplParts.filter((f) => !fs.existsSync(path.join(tplDir, f)));
+if (lost.length) {
+  problems++;
+  say(`  [FAIL] _deploy/tpl 缺部件：${lost.join(', ')}（先跑 node tools/build_roster_tpl.mjs）`);
+} else {
+  say(`  [OK]   _deploy/tpl 齐全（${tplParts.length} 个文件）`);
+}
+
+// styles.xml 必须是参考文件那一份（288214 字节），否则「字体/底色/边框」全对不上
+const stSize = fs.statSync(path.join(tplDir, 'styles.xml')).size;
+if (stSize === 288214) say('  [OK]   tpl/styles.xml 就是参考文件那份（288214 字节）');
+else { problems++; say(`  [FAIL] tpl/styles.xml 大小 ${stSize} ≠ 288214（不是参考文件的样式表）`); }
+
+// meta.json 与参考表结构吻合：95 个人员行、35 个日列
+if (tplMeta.personCount === 95 && tplMeta.personFirst === 7 && tplMeta.personLast === 101 &&
+    tplMeta.dayColCount === 35 && tplMeta.dayColFirst === 5 && tplMeta.refNames.length === 95) {
+  say('  [OK]   meta.json：95 个人员行（7..101）、35 个日列（E..AM）');
+} else {
+  problems++;
+  say(`  [FAIL] meta.json 与参考表结构不符：人 ${tplMeta.personCount} 行 ${tplMeta.personFirst}..${tplMeta.personLast}，日列 ${tplMeta.dayColCount}`);
+}
+
+// 导出纯函数块必须能抽出来单测（tools/test_roster_export.mjs）
+const rxStart = mgr.indexOf('/* ===== ROSTEREXPORT-BLOCK-START =====');
+const rxEnd = mgr.indexOf('/* ===== ROSTEREXPORT-BLOCK-END =====');
+if (rxStart < 0 || rxEnd <= rxStart) {
+  problems++;
+  say('  [FAIL] manager.html: 缺少 ROSTEREXPORT-BLOCK 标记（tools/test_roster_export.mjs 靠它抽源码）');
+} else {
+  const rxBlock = mgr.slice(rxStart, rxEnd);
+  const dirty = ['document.', 'navigator.', 'SR.', 'location.', 'localStorage', 'fetch('].filter((x) => rxBlock.includes(x));
+  if (dirty.length) {
+    problems++;
+    say(`  [FAIL] manager.html: ROSTEREXPORT-BLOCK 里不该有 ${dirty.join(' / ')}（纯函数才能单测）`);
+  } else {
+    say('  [OK]   manager.html: ROSTEREXPORT-BLOCK 是纯函数块（无 DOM / 网络 / 会话）');
+  }
+}
+
+// 导出必须是真 .xlsx：不许退回 CSV（CSV 带不了样式/合并/列宽）
+if (/text\/csv|\.csv'/i.test(mgr) || /text\/csv/i.test(xlsxLite)) {
+  problems++;
+  say('  [FAIL] 导出退回 CSV 了（CSV 无法复刻字体/底色/边框/合并/列宽）');
+} else {
+  say('  [OK]   导出是真 .xlsx（没有 CSV 兜底）');
+}
+if (/application\/vnd\.openxmlformats-officedocument\.spreadsheetml\.sheet/.test(xlsxLite)) {
+  say('  [OK]   MIME 用的是 xlsx 官方类型');
+} else {
+  problems++;
+  say('  [FAIL] xlsx-lite: 下载 Blob 的 MIME 不是 xlsx');
+}
+
 // ---------- 5. 体积 ----------
 say('\n== 5. sizes ==');
 for (const f of [...cssFiles, 'auth-core.js', ...files]) {

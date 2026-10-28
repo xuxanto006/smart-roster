@@ -427,6 +427,61 @@ if (/SR\.db\.(upsert|insert|patch|del)/.test(me)) {
   say('  [OK]   me.html: 导入日历不需要写库（纯前端生成 .ics）');
 }
 
+// ---------- 4i. 经理端三种看法 / 全屏 / 日期浮窗 ----------
+say('\n== 4i. roster views (fullscreen / overview / day) ==');
+const viewNeed = [
+  ['manager: 有「表格 / 总览 / 按天」三个视图按钮', mgr, 'id="viewSeg"'],
+  ['manager: 三种看法放在同一个 #viewBox（全屏只作用于这块）', mgr, 'id="viewBox"'],
+  ['manager: 有全屏编辑按钮', mgr, 'id="fsBtn"'],
+  ['manager: 全屏里有退出按钮', mgr, 'id="fsExit"'],
+  ['manager: 总览容器', mgr, 'id="overviewWrap"'],
+  ['manager: 按天容器', mgr, 'id="dayWrap"'],
+  ['manager: 日期浮窗容器', mgr, 'id="dayOv"'],
+  ['manager: 浮窗能一键进全屏', mgr, 'id="dayFs"'],
+  ['manager: 表格日期表头可点（点开当天所有人）', mgr, 'data-dayhead="'],
+  ['manager: 总览的格子可点（点开当天所有人）', mgr, 'data-ov="'],
+  ['manager: 有「当天所有人」面板渲染', mgr, 'function openDay(day)'],
+  ['manager: 有总览渲染', mgr, 'function renderOverview()'],
+  ['manager: 有按天渲染', mgr, 'function renderDay()'],
+  ['manager: 三块只画一块', mgr, 'function renderView()'],
+  ['manager: 选过的看法记在本机', mgr, "localStorage.getItem('sr.mgrView')"],
+  ['manager: 手机默认「按天」（替代左右横滑）', mgr, "window.innerWidth <= 720 ? 'day' : 'sheet'"],
+  ['manager: 全屏是 CSS 铺满（iOS 也能用），不是 Fullscreen API', mgr, '.viewbox.fs {'],
+  ['manager: 全屏时锁住页面滚动', mgr, 'body.fs-open'],
+  ['manager: Esc 能退全屏 / 关浮窗', mgr, "if (e.key !== 'Escape') return;"],
+  ['manager: 换周后「按天」落回今天', mgr, 'S.day = mgrDayIdx(week, new Date());'],
+  ['manager: 三种看法共用一套班次快捷按钮', mgr, 'function miniBtns(cur, disabled)'],
+];
+for (const [label, src, needle] of viewNeed) {
+  if (src.includes(needle)) say(`  [OK]   ${label}`);
+  else { problems++; say(`  [FAIL] ${label}: "${needle}" not found`); }
+}
+
+// 纯函数块必须能抽出来单测（tools/test_manager_views.mjs）
+const mvStart = mgr.indexOf('/* ===== MGRVIEW-BLOCK-START =====');
+const mvEnd = mgr.indexOf('/* ===== MGRVIEW-BLOCK-END =====');
+if (mvStart < 0 || mvEnd <= mvStart) {
+  problems++;
+  say('  [FAIL] manager.html: 缺少 MGRVIEW-BLOCK 标记（tools/test_manager_views.mjs 靠它抽源码）');
+} else {
+  const mvBlock = mgr.slice(mvStart, mvEnd);
+  const dirty = ['document.', 'navigator.', 'SR.', 'location.', 'localStorage'].filter((x) => mvBlock.includes(x));
+  if (dirty.length) {
+    problems++;
+    say(`  [FAIL] manager.html: MGRVIEW-BLOCK 里不该有 ${dirty.join(' / ')}（纯函数才能单测）`);
+  } else {
+    say('  [OK]   manager.html: MGRVIEW-BLOCK 是纯函数块（无 DOM / 网络 / 会话）');
+  }
+}
+
+// 三种看法必须共用同一份草稿（不能各画各的，也不能绕开 setSlot 直接改 S.grid）
+if (/S\.grid\[[^\]]+\]\s*\.slot\s*=/.test(mgr.replace(/function setSlot\(k, slot, btn, day, role\)[\s\S]*?\n  \}/, ''))) {
+  problems++;
+  say('  [FAIL] manager.html: setSlot 之外还在直接写 S.grid[...].slot（会绕过落草稿）');
+} else {
+  say('  [OK]   manager.html: 改班次只走 setSlot（三种看法共用一条写路径）');
+}
+
 // ---------- 5. 体积 ----------
 say('\n== 5. sizes ==');
 for (const f of [...cssFiles, 'auth-core.js', ...files]) {

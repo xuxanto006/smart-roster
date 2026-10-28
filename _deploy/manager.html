@@ -51,6 +51,110 @@
   .req-row .tag.leave { background: rgba(255, 59, 48, .12); color: #c0392b; }
   .req-row .tag.must { background: rgba(0, 122, 255, .12); color: #0a58ca; }
   .req-row .x { margin-left: auto; }
+
+  /* ============ 三种看法：表格 / 总览 / 按天 ============
+     把三块内容放在同一个 #viewBox 里，同一时刻只显示一块；
+     全屏编辑 = 给这块盒子加 .fs（固定铺满视口），不是浏览器的 Fullscreen API，
+     这样 iOS Safari 上也能用。 */
+  .viewbox { position: relative; }
+  .viewbox > [hidden] { display: none !important; }
+  .viewbox .fs-exit { display: none; }
+  .viewbox.fs {
+    position: fixed; inset: 0; z-index: 60;
+    padding: 12px 12px 20px; padding-top: 54px;
+    background: var(--surface); overflow: auto;
+    display: flex; flex-direction: column;
+  }
+  .viewbox.fs > .fs-exit { display: inline-flex; position: fixed; top: 12px; right: 14px; z-index: 61; }
+  .viewbox.fs #sheetWrap { max-height: none; flex: 1 1 auto; }
+  .viewbox.fs .ovview, .viewbox.fs #overviewWrap { flex: 1 1 auto; min-height: 0; overflow: auto; }
+  body.fs-open { overflow: hidden; }
+
+  /* 表格：日期表头可点（点开 = 当天所有人） */
+  .grid thead th[data-dayhead] { cursor: pointer; }
+  .grid thead th[data-dayhead]:active { background: var(--line-soft); }
+
+  /* 总览：一眼看完全店，按部门分组，一屏尽量装下 */
+  .ovwrap { border: 1px solid var(--line-soft); border-radius: 14px; background: var(--surface); overflow: auto; }
+  table.ov { border-collapse: separate; border-spacing: 0; width: 100%; min-width: 620px; }
+  .ov th, .ov td { border-bottom: 1px solid var(--line-soft); border-right: 1px solid var(--line-soft); }
+  .ov tr:last-child td { border-bottom: 0; }
+  .ov th:last-child, .ov td:last-child { border-right: 0; }
+  .ov thead th {
+    position: sticky; top: 0; z-index: 2; background: var(--surface-2);
+    font-size: 12px; font-weight: 600; color: var(--text-2); padding: 8px 4px; text-align: center;
+  }
+  .ov thead th .d { display: block; font-weight: 400; color: var(--text-3); font-size: 11px; }
+  .ov thead th.we { color: var(--accent); }
+  .ov td { padding: 2px 3px; }
+  .ov td.who2 { text-align: left; padding: 5px 10px; font-size: 12.5px; white-space: nowrap; }
+  .ov tr.grp td {
+    background: var(--surface-2); color: var(--text-2);
+    font-size: 11.5px; font-weight: 600; text-align: left; padding: 6px 10px;
+  }
+  .ob {
+    display: flex; align-items: center; justify-content: center;
+    height: 24px; border-radius: 6px; font-size: 10.5px; font-weight: 700;
+    cursor: pointer; user-select: none;
+  }
+  .ob.s-early { background: var(--shift-early-bg); color: var(--shift-early); box-shadow: inset 0 0 0 1px var(--shift-early); }
+  .ob.s-mid { background: var(--shift-mid-bg); color: var(--shift-mid); box-shadow: inset 0 0 0 1px var(--shift-mid); }
+  .ob.s-night { background: var(--shift-night-bg); color: var(--shift-night); box-shadow: inset 0 0 0 1px var(--shift-night); }
+  .ob.s-rest { background: var(--surface-2); color: var(--text-3); }
+  .ob.s-none { border: 1px dashed var(--line); color: var(--text-3); }
+
+  /* 按天：手机上默认这一屏，用「一天的名单」替代左右横滑 */
+  .daytabs {
+    display: flex; gap: 6px; overflow: auto; padding: 8px;
+    border: 1px solid var(--line-soft); border-radius: 14px; background: var(--surface);
+    margin-bottom: 10px; -webkit-overflow-scrolling: touch;
+  }
+  .daytabs button {
+    flex: 0 0 auto; border: 0; background: transparent; font: inherit;
+    font-size: 12.5px; color: var(--text-2); padding: 6px 10px; border-radius: 9px; cursor: pointer;
+    line-height: 1.25;
+  }
+  .daytabs button.we:not(.on) { color: var(--accent); }
+  .daytabs button.on { background: var(--accent); color: #fff; }
+  .daytabs button b { display: block; font-weight: 400; font-size: 11px; opacity: .85; }
+  .daycards { border: 1px solid var(--line-soft); border-radius: 14px; background: var(--surface); overflow: hidden; }
+  .dcard { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--line-soft); }
+  .dcard:last-child { border-bottom: 0; }
+  .dcard .nm, .drow .nm { flex: 1 1 auto; min-width: 0; font-size: 13.5px; }
+  .dcard .nm small, .drow .nm small { display: block; color: var(--text-3); font-size: 11px; }
+  .dcard .chip { height: 26px; padding: 0 9px; font-size: 12px; }
+
+  /* 班次快捷按钮（按天视图 / 日期浮窗里共用一套） */
+  .mini { display: flex; gap: 4px; flex: none; }
+  .mini button {
+    min-width: 30px; height: 28px; padding: 0 6px; border-radius: 8px;
+    border: 1px solid var(--line); background: transparent; font: inherit;
+    font-size: 11.5px; color: var(--text-2); cursor: pointer;
+  }
+  .mini button:disabled { opacity: .45; cursor: not-allowed; }
+  .mini button.on { border-color: transparent; color: #fff; background: var(--accent); }
+  .mini button.on.s-early { background: var(--shift-early-bg); color: var(--shift-early); }
+  .mini button.on.s-mid { background: var(--shift-mid-bg); color: var(--shift-mid); }
+  .mini button.on.s-night { background: var(--shift-night-bg); color: var(--shift-night); }
+  .mini button.on.s-rest { background: var(--text-3); }
+  .mini button.on.s-none { background: var(--surface-2); color: var(--text-2); }
+
+  /* 日期浮窗：一屏能滚完当天所有人 */
+  .daydlg { max-width: 520px; max-height: 82vh; display: flex; flex-direction: column; }
+  .daylist {
+    margin-top: 4px; overflow: auto; border: 1px solid var(--line-soft);
+    border-radius: 12px; -webkit-overflow-scrolling: touch;
+  }
+  .drow { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-bottom: 1px solid var(--line-soft); }
+  .drow:last-child { border-bottom: 0; }
+
+  /* 手机上表格缩一点，但「按天」才是默认视图 */
+  @media (max-width: 720px) {
+    #sheetWrap table.grid { min-width: 660px; }
+    .cell { min-width: 40px; height: 34px; font-size: 12px; }
+    .viewbox.fs { padding: 8px; padding-top: 50px; }
+    .daydlg { max-height: 88vh; }
+  }
 </style>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='24' fill='%231d1d1f'/><text x='50' y='66' font-size='46' font-family='system-ui' font-weight='700' text-anchor='middle' fill='%23fff'>SR</text></svg>">
 </head>
@@ -92,6 +196,16 @@
   <div class="toolbar">
     <div class="seg" id="domSeg"></div>
     <input class="search" id="q" type="search" placeholder="搜索员工 / 岗位 / 模块" autocomplete="off">
+  </div>
+
+  <div class="toolbar">
+    <div class="seg" id="viewSeg" title="换一种看法：表格 / 总览 / 按天">
+      <button type="button" data-view="sheet" class="on">表格</button>
+      <button type="button" data-view="overview">总览</button>
+      <button type="button" data-view="day">按天</button>
+    </div>
+    <button class="btn plain sm" id="fsBtn" type="button">全屏编辑</button>
+    <span class="hint" id="viewHint" style="margin:0">点日期表头：看当天所有人</span>
   </div>
 
   <div class="toolbar">
@@ -139,14 +253,33 @@
     <span class="mute">左下角「开 / 闭」＝开店 / 闭店（切到「开店 / 闭店」模式后点格子可改）；右上角蓝点＝还没同步</span>
   </div>
 
-  <div class="sheet-wrap" id="sheetWrap">
-    <div class="skeleton">正在载入班表…</div>
+  <div class="viewbox" id="viewBox">
+    <button class="btn ghost sm fs-exit" id="fsExit" type="button">退出全屏</button>
+    <div class="sheet-wrap" id="sheetWrap">
+      <div class="skeleton">正在载入班表…</div>
+    </div>
+    <div class="ovview" id="overviewWrap" hidden></div>
+    <div class="dayview" id="dayWrap" hidden></div>
   </div>
 
   <div class="stats" id="stats"></div>
 
   <p class="hint" id="hint"></p>
 </main>
+
+<div class="overlay" id="dayOv">
+  <div class="sheet daydlg">
+    <h3 id="dayTitle">—</h3>
+    <p class="sub" id="dayDesc"></p>
+    <div class="daylist" id="dayList"></div>
+    <div class="acts">
+      <div class="row-btns">
+        <button class="btn ghost block" id="dayClose" type="button">关闭</button>
+        <button class="btn primary block" id="dayFs" type="button">全屏编辑</button>
+      </div>
+    </div>
+  </div>
+</div>
 
 <div class="overlay" id="overlay">
   <div class="sheet">
@@ -239,6 +372,9 @@
     q: '',
     busy: false,
     mode: 'slot',     /* 点格子的行为：slot = 切班次；role = 标开店/闭店 */
+    view: 'sheet',    /* 看法：sheet = 表格；overview = 总览；day = 按天 */
+    day: 0,           /* 「按天」视图 / 日期浮窗里选中的那天（0=周一） */
+    fs: false,        /* 全屏编辑 */
     reqs: []          /* 本周的请假 / 必上，来自 requests + must_work */
   };
 
@@ -266,6 +402,33 @@
       ' – ' + pad(b.getMonth() + 1) + '/' + pad(b.getDate());
   }
 
+  /* ===== MGRVIEW-BLOCK-START =====
+     纯函数（不碰 DOM / 网络），单测直接抽这段到 vm 里跑：
+       · mgrDayIdx()  —— 这一周里「今天」是第几天（不在本周就回到周一）
+       · miniBtns()   —— 班次快捷按钮（按天视图与日期浮窗共用）
+     注意：改动这段必须让 node tools/test_manager_views.mjs 通过。 */
+  var MINI_ORDER = [['early', '早'], ['mid', '中'], ['night', '晚'], ['rest', '休'], ['', '清']];
+
+  function mgrDayIdx(weekYmd, now) {
+    var p = String(weekYmd || '').split('-').map(Number);
+    if (p.length !== 3 || !p[0] || !p[1] || !p[2]) return 0;
+    var mon = new Date(p[0], p[1] - 1, p[2]);
+    var t = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    var d = Math.round((t.getTime() - mon.getTime()) / 86400000);
+    return (d >= 0 && d < 7) ? d : 0;
+  }
+
+  function miniBtns(cur, disabled) {
+    return MINI_ORDER.map(function (x) {
+      var on = (cur || '') === x[0];
+      return '<button type="button" data-slot="' + x[0] + '" class="' + (x[0] ? 's-' + x[0] : 's-none') +
+        (on ? ' on' : '') + '"' + (disabled ? ' disabled' : '') + '>' + x[1] + '</button>';
+    }).join('');
+  }
+  /* ===== MGRVIEW-BLOCK-END ===== */
+
+  function dayIdxOfWeek() { return mgrDayIdx(S.week, new Date()); }
+
   function esc(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
@@ -287,11 +450,15 @@
   /* ---------------- 载入 ---------------- */
   function load(week) {
     S.week = week;
+    S.day = mgrDayIdx(week, new Date());   /* 换周后「按天」默认落在今天；不在本周就回周一 */
     S.grid = {};
     S.dirty = {};
     setSave('载入中…', '');
     $('#range').textContent = rangeText(week);
-    $('#sheetWrap').innerHTML = '<div class="skeleton">正在载入 ' + esc(rangeText(week)) + ' 的班表…</div>';
+    var sk = '<div class="skeleton">正在载入 ' + esc(rangeText(week)) + ' 的班表…</div>';
+    $('#sheetWrap').innerHTML = sk;
+    $('#overviewWrap').innerHTML = sk;
+    $('#dayWrap').innerHTML = sk;
 
     return Promise.all([
       SR.db.select('weeks', 'week_key=eq.' + week + '&select=week_key,status'),
@@ -330,10 +497,13 @@
 
   function fail(msg) {
     setSave('载入失败', 'bad');
-    $('#sheetWrap').innerHTML =
-      '<div class="empty"><b>班表没载入成功</b>' + esc(msg) +
+    var box = '<div class="empty"><b>班表没载入成功</b>' + esc(msg) +
       '<div class="acts" style="max-width:200px;margin:16px auto 0">' +
       '<button class="btn ghost block" type="button" onclick="location.reload()">重新加载</button></div></div>';
+    /* 三种看法都要看到这条，否则你在「按天」里会以为页面卡住了 */
+    $('#sheetWrap').innerHTML = box;
+    $('#overviewWrap').innerHTML = box;
+    $('#dayWrap').innerHTML = box;
   }
 
   /* ---------------- 渲染 ---------------- */
@@ -363,8 +533,25 @@
   function renderAll() {
     renderReqNames();
     renderDomSeg();
-    renderSheet();
+    renderView();
     renderReqList();
+  }
+
+  /* 三种看法共用一份数据（S.grid），同一时刻只画一块 */
+  function renderView() {
+    if (!S.week) return;   /* 还没定周（首屏）先别画，免得算出 NaN 日期 */
+    var btns = document.querySelectorAll('#viewSeg button');
+    for (var i = 0; i < btns.length; i++) {
+      btns[i].className = btns[i].getAttribute('data-view') === S.view ? 'on' : '';
+    }
+    $('#sheetWrap').hidden = S.view !== 'sheet';
+    $('#overviewWrap').hidden = S.view !== 'overview';
+    $('#dayWrap').hidden = S.view !== 'day';
+    $('#fsBtn').hidden = S.view === 'day';   /* 按天本来就是一屏，不需要全屏 */
+    if (S.view === 'overview') renderOverview();
+    else if (S.view === 'day') renderDay();
+    else renderSheet();
+    updateCounts();
   }
 
   function renderSheet() {
@@ -379,7 +566,7 @@
     var h = '<table class="grid"><thead><tr><th class="who">员工 <small>共 ' + list.length + ' 人</small></th>';
     for (var i = 0; i < 7; i++) {
       var d = addDays(parseYmd(S.week), i);
-      h += '<th class="' + (i >= 5 ? 'we' : '') + '">' + DAYS[i] +
+      h += '<th class="' + (i >= 5 ? 'we' : '') + '" data-dayhead="' + i + '" title="点这里看这一天所有人">' + DAYS[i] +
         '<span class="d">' + (d.getMonth() + 1) + '/' + d.getDate() + '</span></th>';
     }
     h += '</tr></thead><tbody>';
@@ -451,6 +638,155 @@
     return '<div class="stat"><div class="n">' + n + '</div><div class="k">' + k + '</div></div>';
   }
 
+  /* ---------------- 总览：一眼看完全店 ----------------
+     「表格」适合细改，「总览」适合先看全貌：按部门分组、一人一行、7 个色块，
+     点色块或点表头都能展开到「当天所有人」。 */
+  function renderOverview() {
+    var list = visibleStaff();
+    if (!list.length) {
+      $('#overviewWrap').innerHTML = '<div class="empty"><b>没有匹配的员工</b>换个筛选或搜索词试试</div>';
+      return;
+    }
+    var rmap = reqMap();
+    var byDom = {}, order = [];
+    list.forEach(function (p) {
+      var k = p.domain || '未分组';
+      if (!byDom[k]) { byDom[k] = []; order.push(k); }
+      byDom[k].push(p);
+    });
+
+    var h = '<div class="ovwrap"><table class="ov"><thead><tr><th class="who2">员工 ' +
+      '<small style="font-weight:400;color:var(--text-3)">共 ' + list.length + ' 人</small></th>';
+    for (var i = 0; i < 7; i++) {
+      var d = addDays(parseYmd(S.week), i);
+      h += '<th class="' + (i >= 5 ? 'we' : '') + '" data-dayhead="' + i + '" title="点这里看这一天所有人">' +
+        DAYS[i] + '<span class="d">' + (d.getMonth() + 1) + '/' + d.getDate() + '</span></th>';
+    }
+    h += '</tr></thead><tbody>';
+
+    order.forEach(function (dom) {
+      h += '<tr class="grp"><td colspan="8">' + esc(DOMAIN_LABEL[dom] || dom) +
+        ' · ' + byDom[dom].length + ' 人</td></tr>';
+      byDom[dom].forEach(function (p) {
+        var mgr = p.level === '经理';
+        h += '<tr><td class="who2">' + esc(p.name) +
+          (mgr ? ' <span class="badge">不排班</span>' : '') + '</td>';
+        for (var day = 0; day < 7; day++) {
+          var c = S.grid[p.name + '|' + day] || {};
+          var slot = c.slot || '';
+          var qk = rmap[p.name + '|' + day] || '';
+          var tag = qk === 'leave' ? '请' : qk === 'must' ? '必' : '';
+          h += '<td data-ov="' + esc(p.name) + '|' + day + '">' +
+            '<span class="ob ' + SLOT_CLASS[slot] + '">' + (SLOT_LABEL[slot] || '·') + tag + '</span></td>';
+        }
+        h += '</tr>';
+      });
+    });
+
+    h += '</tbody></table></div>' +
+      '<p class="hint">点任意色块 / 表头 →「当天所有人」浮窗，在里面直接改班次；要一格一格细改就切回「表格」。</p>';
+    $('#overviewWrap').innerHTML = h;
+  }
+
+  /* ---------------- 按天：一天一屏（手机上默认） ----------------
+     替代原来的左右横滑：先选天，再看这一天所有人的班次，直接在行尾改。 */
+  function renderDay() {
+    var list = visibleStaff();
+    var rmap = reqMap();
+    if (!(S.day >= 0 && S.day <= 6)) S.day = 0;
+
+    var h = '<div class="daytabs">';
+    for (var i = 0; i < 7; i++) {
+      var d = addDays(parseYmd(S.week), i);
+      h += '<button type="button" data-daytab="' + i + '" class="' + (i >= 5 ? 'we' : '') +
+        (i === S.day ? ' on' : '') + '">' + DAYS[i] +
+        '<b>' + (d.getMonth() + 1) + '/' + d.getDate() + '</b></button>';
+    }
+    h += '</div>';
+
+    if (!list.length) {
+      $('#dayWrap').innerHTML = h + '<div class="empty"><b>没有匹配的员工</b>换个筛选或搜索词试试</div>';
+      return;
+    }
+
+    h += '<div class="daycards">';
+    list.forEach(function (p) {
+      var c = S.grid[p.name + '|' + S.day] || {};
+      var slot = c.slot || '';
+      var qk = rmap[p.name + '|' + S.day] || '';
+      var mgr = p.level === '经理';
+      var meta = DOMAIN_LABEL[p.domain] || p.domain || '';
+      if (p.position) meta += ' · ' + p.position;
+      if (mgr) meta += ' · 不排班';
+      h += '<div class="dcard"><div class="nm">' + esc(p.name) + '<small>' + esc(meta) + '</small></div>' +
+        (qk ? '<span class="badge ' + (qk === 'leave' ? 'bad' : 'info') + '">' +
+          (qk === 'leave' ? '请假' : '必上') + '</span>' : '') +
+        (c.role ? '<span class="role-tag">' + ROLE_LABEL[c.role] + '</span>' : '') +
+        '<div class="mini" data-mini="' + esc(p.name) + '">' +
+        miniBtns(slot, S.readonly || mgr) + '</div></div>';
+    });
+    h += '</div><p class="hint">「按天」适合手机：不用左右横滑；要并排看一周就切「表格」，要先看全貌就切「总览」。</p>';
+    $('#dayWrap').innerHTML = h;
+  }
+
+  /* ---------------- 日期浮窗：当天所有人 ----------------
+     点表头 / 总览里的格子都能唤起；在浮窗里改班次会立刻落草稿（和表格同一套逻辑）。 */
+  function openDay(day) {
+    if (!(day >= 0 && day <= 6)) day = 0;
+    S.day = day;
+    var d = addDays(parseYmd(S.week), day);
+    var list = visibleStaff();
+    var rmap = reqMap();
+
+    var work = 0;
+    list.forEach(function (p) {
+      var c = S.grid[p.name + '|' + day];
+      if (c && c.slot && c.slot !== 'rest') work++;
+    });
+
+    $('#dayTitle').textContent = DAYS[day] + ' · ' + (d.getMonth() + 1) + '/' + d.getDate();
+    $('#dayDesc').textContent = '上班 ' + work + ' 人 / 共 ' + list.length +
+      ' 人 · 点右侧按钮直接改班次，改完立刻存草稿';
+
+    var h = '';
+    list.forEach(function (p) {
+      var c = S.grid[p.name + '|' + day] || {};
+      var slot = c.slot || '';
+      var qk = rmap[p.name + '|' + day] || '';
+      var mgr = p.level === '经理';
+      var meta = DOMAIN_LABEL[p.domain] || p.domain || '';
+      if (p.position) meta += ' · ' + p.position;
+      if (mgr) meta += ' · 不排班';
+      h += '<div class="drow"><div class="nm">' + esc(p.name) + '<small>' + esc(meta) + '</small></div>' +
+        (qk ? '<span class="badge ' + (qk === 'leave' ? 'bad' : 'info') + '">' +
+          (qk === 'leave' ? '请假' : '必上') + '</span>' : '') +
+        (c.role ? '<span class="role-tag">' + ROLE_LABEL[c.role] + '</span>' : '') +
+        '<div class="mini" data-mini="' + esc(p.name) + '">' +
+        miniBtns(slot, S.readonly || mgr) + '</div></div>';
+    });
+
+    $('#dayList').innerHTML = h || '<div class="empty"><b>没有匹配的员工</b>换个筛选或搜索词试试</div>';
+    $('#dayOv').classList.add('show');
+  }
+
+  /* 浮窗开着的时候改了班次：重画内容但保留滚动位置 */
+  function refreshDayDialog() {
+    var ov = $('#dayOv');
+    if (!ov.classList.contains('show')) return;
+    var sc = $('#dayList').scrollTop;
+    openDay(S.day);
+    $('#dayList').scrollTop = sc;
+  }
+
+  function closeDay() { $('#dayOv').classList.remove('show'); }
+
+  function setFs(on) {
+    S.fs = !!on;
+    $('#viewBox').classList.toggle('fs', S.fs);
+    document.body.classList.toggle('fs-open', S.fs);
+    $('#fsBtn').textContent = S.fs ? '退出全屏' : '全屏编辑';
+  }
+
   /* ---------------- 已知晓回执 ---------------- */
   /* 只统计「这一版」：publish 时为每个排了班的员工建一条 inapp 投递，
      员工在「我的班表」点确认后，Edge Function ack 把那条的 status 改成 seen。 */
@@ -519,11 +855,13 @@
     $('#modeHint').textContent = S.mode === 'role'
       ? '点上班格循环：不标 → 开店 → 闭店 → 不标（休息格不能标）'
       : '点格子切换：早 → 中 → 晚 → 休 → 清空（切班次会清掉开/闭）';
-    renderSheet();
+    renderView();
     SR.ui.toast(S.mode === 'role' ? '现在点格子改的是「开店 / 闭店」' : '现在点格子改的是「班次」', 'good');
   });
 
   $('#sheetWrap').addEventListener('click', function (e) {
+    var hd = e.target && e.target.closest ? e.target.closest('[data-dayhead]') : null;
+    if (hd) { openDay(Number(hd.getAttribute('data-dayhead'))); return; }
     var btn = e.target && e.target.closest ? e.target.closest('.cell') : null;
     if (!btn || btn.disabled || S.readonly) return;
     var si = Number(btn.getAttribute('data-si'));
@@ -548,6 +886,67 @@
     setSlot(k, CYCLE[cur.slot] || '', btn, day, '');
   });
 
+  /* ---------------- 看法切换 / 全屏 / 日期浮窗 ----------------
+     三种看法共用一份数据，切换只影响「怎么画」，不改任何草稿；
+     全屏用 CSS 固定铺满（不用 Fullscreen API），iPhone 上同样可用。 */
+  $('#viewSeg').addEventListener('click', function (e) {
+    var b = e.target && e.target.closest ? e.target.closest('button[data-view]') : null;
+    if (!b) return;
+    S.view = b.getAttribute('data-view') || 'sheet';
+    if (S.view === 'day') S.day = dayIdxOfWeek();
+    try { localStorage.setItem('sr.mgrView', S.view); } catch (err) {}
+    renderView();
+    SR.ui.toast(S.view === 'overview' ? '总览：一屏看完谁上班' :
+      S.view === 'day' ? '按天：一天一屏，手机上不用左右滑' : '表格：一格一格细改', 'good');
+  });
+
+  $('#fsBtn').addEventListener('click', function () { setFs(!S.fs); });
+  $('#fsExit').addEventListener('click', function () { setFs(false); });
+
+  $('#overviewWrap').addEventListener('click', function (e) {
+    var t = e.target && e.target.closest ? e.target.closest('[data-dayhead]') : null;
+    if (t) { openDay(Number(t.getAttribute('data-dayhead'))); return; }
+    var c = e.target && e.target.closest ? e.target.closest('[data-ov]') : null;
+    if (!c) return;
+    openDay(Number(String(c.getAttribute('data-ov')).split('|')[1]));
+  });
+
+  $('#dayWrap').addEventListener('click', function (e) {
+    var tab = e.target && e.target.closest ? e.target.closest('[data-daytab]') : null;
+    if (tab) {
+      S.day = Number(tab.getAttribute('data-daytab'));
+      renderDay();
+      return;
+    }
+    var b = e.target && e.target.closest ? e.target.closest('.mini button[data-slot]') : null;
+    if (!b || b.disabled || S.readonly) return;
+    var name = b.parentNode.getAttribute('data-mini');
+    if (name) setSlot(name + '|' + S.day, b.getAttribute('data-slot'), null, S.day, '');
+  });
+
+  $('#dayList').addEventListener('click', function (e) {
+    var b = e.target && e.target.closest ? e.target.closest('.mini button[data-slot]') : null;
+    if (!b || b.disabled || S.readonly) return;
+    var name = b.parentNode.getAttribute('data-mini');
+    if (name) setSlot(name + '|' + S.day, b.getAttribute('data-slot'), null, S.day, '');
+  });
+
+  $('#dayClose').addEventListener('click', closeDay);
+  $('#dayOv').addEventListener('click', function (e) { if (e.target === $('#dayOv')) closeDay(); });
+  $('#dayFs').addEventListener('click', function () {
+    closeDay();
+    S.view = 'sheet';
+    try { localStorage.setItem('sr.mgrView', 'sheet'); } catch (err) {}
+    renderView();
+    setFs(true);
+  });
+
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Escape') return;
+    if ($('#dayOv').classList.contains('show')) { closeDay(); return; }
+    if (S.fs) setFs(false);
+  });
+
   function setSlot(k, slot, btn, day, role) {
     if (!S.grid[k]) S.grid[k] = { slot: '', role: null, manual: false };
     S.grid[k].slot = slot;
@@ -560,6 +959,10 @@
       btn.setAttribute('data-s', slot);
       btn.innerHTML = (SLOT_LABEL[slot] || '—') + roleChip(S.grid[k].role, slot) +
         reqChip(reqMap()[k] || '');
+    } else {
+      /* 从「按天」或日期浮窗里改的：没有格子按钮可改，重画当前这块 */
+      renderView();
+      refreshDayDialog();
     }
     updateCounts();
     schedule();
@@ -1115,12 +1518,12 @@
     if (!b) return;
     S.domain = b.getAttribute('data-dom') || '*';
     renderDomSeg();
-    renderSheet();
+    renderView();
   });
 
   $('#q').addEventListener('input', function () {
     S.q = this.value;
-    renderSheet();
+    renderView();
   });
 
   $('#logout').addEventListener('click', function () {
@@ -1244,6 +1647,13 @@
       : '改动会自动保存为草稿（员工看不到）；「生成本周」按算法排一周草稿，点「发布本周」后员工端才会显示。';
 
     setGenBusy(false);   /* 只读账号在这里被禁用 */
+
+    /* 默认看法：手机 / 平板窄屏 → 「按天」（替代左右横滑）；电脑 → 「表格」。
+       上次手动选过就沿用上次的选择（本机偏好，不上云）。 */
+    var saved = '';
+    try { saved = localStorage.getItem('sr.mgrView') || ''; } catch (e) {}
+    if (saved === 'sheet' || saved === 'overview' || saved === 'day') S.view = saved;
+    else S.view = window.innerWidth <= 720 ? 'day' : 'sheet';
 
     load(ymd(mondayOf(new Date())));
   })();
